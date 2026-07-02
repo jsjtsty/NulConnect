@@ -31,6 +31,22 @@ enum NulConnectProxyServiceError: LocalizedError {
     }
 }
 
+private nonisolated final class NulConnectOneShotGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didRun = false
+
+    nonisolated func run(_ action: () -> Void) {
+        lock.lock()
+        guard !didRun else {
+            lock.unlock()
+            return
+        }
+        didRun = true
+        lock.unlock()
+        action()
+    }
+}
+
 @MainActor
 final class NulConnectProxyGateway {
     private let client: ATRClient
@@ -104,16 +120,16 @@ final class NulConnectProxyService {
         }
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            var didResume = false
-            func finish(_ result: Result<Void, Error>) {
-                guard !didResume else { return }
-                didResume = true
-                listener.stateUpdateHandler = nil
-                switch result {
-                case .success:
-                    continuation.resume(returning: ())
-                case .failure(let error):
-                    continuation.resume(throwing: error)
+            let gate = NulConnectOneShotGate()
+            @Sendable func finish(_ result: Result<Void, Error>) {
+                gate.run {
+                    listener.stateUpdateHandler = nil
+                    switch result {
+                    case .success:
+                        continuation.resume(returning: ())
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
                 }
             }
             listener.stateUpdateHandler = { state in
@@ -618,16 +634,16 @@ private final class NulConnectNWByteChannel: NulConnectByteChannel {
 
     private func startAndWait() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            var didResume = false
-            func finish(_ result: Result<Void, Error>) {
-                guard !didResume else { return }
-                didResume = true
-                connection.stateUpdateHandler = nil
-                switch result {
-                case .success:
-                    continuation.resume(returning: ())
-                case .failure(let error):
-                    continuation.resume(throwing: error)
+            let gate = NulConnectOneShotGate()
+            @Sendable func finish(_ result: Result<Void, Error>) {
+                gate.run {
+                    connection.stateUpdateHandler = nil
+                    switch result {
+                    case .success:
+                        continuation.resume(returning: ())
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
                 }
             }
             connection.stateUpdateHandler = { state in

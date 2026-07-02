@@ -135,7 +135,7 @@ struct ATRResourceSnapshot: Sendable, Codable {
     var excludedIPs: [String]
 }
 
-final class ATRAuthSession {
+nonisolated final class ATRAuthSession {
     private var raw: OpaquePointer?
 
     init(configuration: ATRAuthConfiguration) throws {
@@ -239,7 +239,7 @@ final class ATRAuthSession {
     }
 }
 
-final class ATRClient {
+nonisolated final class ATRClient {
     private var raw: OpaquePointer?
 
     init(configuration: ATRClientConfiguration) throws {
@@ -363,7 +363,7 @@ final class ATRClient {
     }
 }
 
-final class ATRTcpTunnel {
+nonisolated final class ATRTcpTunnel {
     private var raw: OpaquePointer?
 
     init(raw: OpaquePointer) {
@@ -415,7 +415,7 @@ final class ATRTcpTunnel {
     }
 }
 
-final class ATRUdpTunnel {
+nonisolated final class ATRUdpTunnel {
     private var raw: OpaquePointer?
 
     init(raw: OpaquePointer) {
@@ -467,7 +467,7 @@ final class ATRUdpTunnel {
     }
 }
 
-final class ATRL3Tunnel {
+nonisolated final class ATRL3Tunnel {
     private var raw: OpaquePointer?
 
     init(raw: OpaquePointer) {
@@ -524,7 +524,7 @@ final class ATRL3Tunnel {
 
 // MARK: - C Helpers
 
-private final class CStringOwner {
+private nonisolated final class CStringOwner {
     let pointer: UnsafeMutablePointer<CChar>
 
     init(_ string: String) throws {
@@ -539,7 +539,7 @@ private final class CStringOwner {
     }
 }
 
-private struct CookieCInputBuffer {
+private nonisolated struct CookieCInputBuffer {
     let host: CStringOwner
     let scheme: CStringOwner
     let name: CStringOwner
@@ -555,7 +555,7 @@ private struct CookieCInputBuffer {
     }
 }
 
-private func check(_ code: Int32) throws {
+private nonisolated func check(_ code: Int32) throws {
     guard code == 0 else {
         let message = lastErrorMessage()
         switch code {
@@ -573,32 +573,32 @@ private func check(_ code: Int32) throws {
     }
 }
 
-private func lastErrorMessage() -> String {
+private nonisolated func lastErrorMessage() -> String {
     guard let message = atr_last_error_message() else {
         return ""
     }
     return String(cString: message)
 }
 
-private func optionalCStringString(_ pointer: UnsafePointer<CChar>?) -> String? {
+private nonisolated func optionalCStringString(_ pointer: UnsafePointer<CChar>?) -> String? {
     guard let pointer else {
         return nil
     }
     return String(cString: pointer)
 }
 
-private func withCStringValue<T>(_ string: String, _ body: (UnsafePointer<CChar>) throws -> T) rethrows -> T {
+private nonisolated func withCStringValue<T>(_ string: String, _ body: (UnsafePointer<CChar>) throws -> T) rethrows -> T {
     try string.withCString { try body($0) }
 }
 
-private func withOptionalCStringValue<T>(_ string: String?, _ body: (UnsafePointer<CChar>?) throws -> T) rethrows -> T {
+private nonisolated func withOptionalCStringValue<T>(_ string: String?, _ body: (UnsafePointer<CChar>?) throws -> T) rethrows -> T {
     if let string {
         return try withCStringValue(string) { try body($0) }
     }
     return try body(nil)
 }
 
-private func withClientConfiguration<T>(_ configuration: ATRClientConfiguration, _ body: (atr_client_config_t) throws -> T) throws -> T {
+private nonisolated func withClientConfiguration<T>(_ configuration: ATRClientConfiguration, _ body: (atr_client_config_t) throws -> T) throws -> T {
     try withCStringValue(configuration.serverHost) { serverHost in
         try withCStringValue(configuration.userAgent) { userAgent in
             let config = atr_client_config_t(
@@ -615,7 +615,7 @@ private func withClientConfiguration<T>(_ configuration: ATRClientConfiguration,
     }
 }
 
-private func withAuthConfiguration<T>(_ configuration: ATRAuthConfiguration, _ body: (atr_auth_config_t) throws -> T) throws -> T {
+private nonisolated func withAuthConfiguration<T>(_ configuration: ATRAuthConfiguration, _ body: (atr_auth_config_t) throws -> T) throws -> T {
     try withCStringValue(configuration.serverHost) { serverHost in
         try withCStringValue(configuration.userAgent) { userAgent in
             try withCStringValue(configuration.clientType) { clientType in
@@ -642,7 +642,7 @@ private func withAuthConfiguration<T>(_ configuration: ATRAuthConfiguration, _ b
     }
 }
 
-private func withSessionMaterialInput<T>(_ material: ATRSessionMaterial, _ body: (atr_session_material_input_t) throws -> T) throws -> T {
+private nonisolated func withSessionMaterialInput<T>(_ material: ATRSessionMaterial, _ body: (atr_session_material_input_t) throws -> T) throws -> T {
     let cookies = try material.cookies.map { cookie in
         try CookieCInputBuffer(
             host: CStringOwner(cookie.host),
@@ -657,7 +657,7 @@ private func withSessionMaterialInput<T>(_ material: ATRSessionMaterial, _ body:
             try withCStringValue(material.deviceID) { deviceID in
                 try withCStringValue(material.connectionID) { connectionID in
                     try withCStringValue(material.signKeyHex) { signKeyHex in
-                        var inputs = cookies.map(\.input)
+                        var inputs = cookies.map { $0.input }
                         return try inputs.withUnsafeMutableBufferPointer { pointer in
                             let input = atr_session_material_input_t(
                                 username: username,
@@ -676,7 +676,7 @@ private func withSessionMaterialInput<T>(_ material: ATRSessionMaterial, _ body:
     }
 }
 
-private func decodeAuthMethods(_ list: atr_auth_method_list_t) -> [ATRAuthMethod] {
+private nonisolated func decodeAuthMethods(_ list: atr_auth_method_list_t) -> [ATRAuthMethod] {
     guard let items = list.items, list.len > 0 else {
         return []
     }
@@ -691,7 +691,7 @@ private func decodeAuthMethods(_ list: atr_auth_method_list_t) -> [ATRAuthMethod
     }
 }
 
-private func decodeSessionMaterial(_ material: atr_session_material_t) -> ATRSessionMaterial {
+private nonisolated func decodeSessionMaterial(_ material: atr_session_material_t) -> ATRSessionMaterial {
     ATRSessionMaterial(
         username: String(cString: material.username),
         sid: String(cString: material.sid),
@@ -702,7 +702,7 @@ private func decodeSessionMaterial(_ material: atr_session_material_t) -> ATRSes
     )
 }
 
-private func decodeCookies(_ list: atr_cookie_list_t) -> [ATRCookie] {
+private nonisolated func decodeCookies(_ list: atr_cookie_list_t) -> [ATRCookie] {
     guard let items = list.items, list.len > 0 else {
         return []
     }
@@ -717,7 +717,7 @@ private func decodeCookies(_ list: atr_cookie_list_t) -> [ATRCookie] {
     }
 }
 
-private func decodeChallenge(_ challenge: atr_auth_challenge_t) -> ATRAuthChallenge {
+private nonisolated func decodeChallenge(_ challenge: atr_auth_challenge_t) -> ATRAuthChallenge {
     switch challenge.kind {
     case ATR_AUTH_CHALLENGE_CAPTCHA:
         return .captcha(data(from: challenge.image))
@@ -739,14 +739,14 @@ private func decodeChallenge(_ challenge: atr_auth_challenge_t) -> ATRAuthChalle
     }
 }
 
-private func data(from blob: atr_blob_t) -> Data {
+private nonisolated func data(from blob: atr_blob_t) -> Data {
     guard let data = blob.data, blob.len > 0 else {
         return Data()
     }
     return Data(bytes: data, count: blob.len)
 }
 
-private func decodeStringList(_ list: atr_string_list_t) -> [String] {
+private nonisolated func decodeStringList(_ list: atr_string_list_t) -> [String] {
     guard let items = list.items, list.len > 0 else {
         return []
     }
@@ -754,7 +754,7 @@ private func decodeStringList(_ list: atr_string_list_t) -> [String] {
     return buffer.map { String(cString: $0!) }
 }
 
-private func decodeResourceSnapshot(_ snapshot: atr_resource_snapshot_t) -> ATRResourceSnapshot {
+private nonisolated func decodeResourceSnapshot(_ snapshot: atr_resource_snapshot_t) -> ATRResourceSnapshot {
     let ipResources = decodeIPResources(snapshot.ip_resources)
     let domainResources = decodeDomainResources(snapshot.domain_resources)
     let dnsResources = decodeDNSResources(snapshot.dns_resources)
@@ -773,7 +773,7 @@ private func decodeResourceSnapshot(_ snapshot: atr_resource_snapshot_t) -> ATRR
     )
 }
 
-private func decodeIPResources(_ list: atr_ip_resource_list_t) -> [ATRIPResource] {
+private nonisolated func decodeIPResources(_ list: atr_ip_resource_list_t) -> [ATRIPResource] {
     guard let items = list.items, list.len > 0 else {
         return []
     }
@@ -791,7 +791,7 @@ private func decodeIPResources(_ list: atr_ip_resource_list_t) -> [ATRIPResource
     }
 }
 
-private func decodeDomainResources(_ list: atr_domain_resource_list_t) -> [ATRDomainResource] {
+private nonisolated func decodeDomainResources(_ list: atr_domain_resource_list_t) -> [ATRDomainResource] {
     guard let items = list.items, list.len > 0 else {
         return []
     }
@@ -808,7 +808,7 @@ private func decodeDomainResources(_ list: atr_domain_resource_list_t) -> [ATRDo
     }
 }
 
-private func decodeDNSResources(_ list: atr_dns_resource_list_t) -> [ATRDNSResource] {
+private nonisolated func decodeDNSResources(_ list: atr_dns_resource_list_t) -> [ATRDNSResource] {
     guard let items = list.items, list.len > 0 else {
         return []
     }
@@ -821,7 +821,7 @@ private func decodeDNSResources(_ list: atr_dns_resource_list_t) -> [ATRDNSResou
     }
 }
 
-private func decodeNodeGroups(_ list: atr_node_group_list_t) -> [ATRNodeGroup] {
+private nonisolated func decodeNodeGroups(_ list: atr_node_group_list_t) -> [ATRNodeGroup] {
     guard let items = list.items, list.len > 0 else {
         return []
     }
@@ -834,7 +834,7 @@ private func decodeNodeGroups(_ list: atr_node_group_list_t) -> [ATRNodeGroup] {
     }
 }
 
-private func makeEmptyChallenge() -> atr_auth_challenge_t {
+private nonisolated func makeEmptyChallenge() -> atr_auth_challenge_t {
     atr_auth_challenge_t(
         kind: ATR_AUTH_CHALLENGE_DONE,
         image: atr_blob_t(data: nil, len: 0),
@@ -845,7 +845,7 @@ private func makeEmptyChallenge() -> atr_auth_challenge_t {
     )
 }
 
-private func makeEmptySessionMaterial() -> atr_session_material_t {
+private nonisolated func makeEmptySessionMaterial() -> atr_session_material_t {
     atr_session_material_t(
         username: nil,
         sid: nil,
@@ -856,7 +856,7 @@ private func makeEmptySessionMaterial() -> atr_session_material_t {
     )
 }
 
-private func makeEmptyResourceSnapshot() -> atr_resource_snapshot_t {
+private nonisolated func makeEmptyResourceSnapshot() -> atr_resource_snapshot_t {
     atr_resource_snapshot_t(
         resource_bytes: atr_blob_t(data: nil, len: 0),
         dns_server: nil,

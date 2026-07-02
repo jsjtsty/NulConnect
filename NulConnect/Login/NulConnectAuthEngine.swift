@@ -1,7 +1,6 @@
 import Foundation
 
-@MainActor
-final class NulConnectAuthEngine {
+actor NulConnectAuthEngine {
     private var session: ATRAuthSession?
     private var configuration: ATRAuthConfiguration?
     private var callbackDeviceID: String?
@@ -17,7 +16,7 @@ final class NulConnectAuthEngine {
         guard let session, let configuration else {
             throw NulConnectLoginError.noSession
         }
-        guard let capturePolicy = capturePolicy(for: method, baseHost: configuration.serverHost) else {
+        guard let capturePolicy = Self.capturePolicy(for: method, baseHost: configuration.serverHost) else {
             throw NulConnectLoginError.unsupportedAuthType(method.authType)
         }
 
@@ -44,7 +43,7 @@ final class NulConnectAuthEngine {
         guard let callbackDeviceID else {
             throw NulConnectLoginError.noSession
         }
-        let validatedURL = try validateCallbackURL(callbackURL, method: method, baseHost: configuration.serverHost)
+        let validatedURL = try Self.validateCallbackURL(callbackURL, method: method, baseHost: configuration.serverHost)
         return try session.completeCallback(validatedURL, deviceID: callbackDeviceID)
     }
 
@@ -61,7 +60,7 @@ final class NulConnectAuthEngine {
         callbackDeviceID = nil
     }
 
-    private func capturePolicy(for method: ATRAuthMethod, baseHost: String) -> NulConnectWebLoginCapturePolicy? {
+    private nonisolated static func capturePolicy(for method: ATRAuthMethod, baseHost: String) -> NulConnectWebLoginCapturePolicy? {
         switch method.authType {
         case "auth/cas":
             return .cas(baseHost: baseHost)
@@ -72,7 +71,7 @@ final class NulConnectAuthEngine {
         }
     }
 
-    private func validateCallbackURL(_ callbackURL: URL, method: ATRAuthMethod, baseHost: String) throws -> URL {
+    private nonisolated static func validateCallbackURL(_ callbackURL: URL, method: ATRAuthMethod, baseHost: String) throws -> URL {
         guard let policy = capturePolicy(for: method, baseHost: baseHost) else {
             throw NulConnectLoginError.unsupportedAuthType(method.authType)
         }
