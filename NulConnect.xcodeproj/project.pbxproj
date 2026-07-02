@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		27B8231F2FF5855A00E51188 /* libreatrust.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		27B823202FF5855A00E51188 /* libreatrust.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		27B823012FF5855A00E51188 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -23,10 +28,34 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		27B8231D2FF5855A00E51188 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				27B8231F2FF5855A00E51188 /* libreatrust.dylib in CopyFiles */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		27B823212FF5855A00E51188 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				27B823202FF5855A00E51188 /* libreatrust.dylib in CopyFiles */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		27B822F12FF5855900E51188 /* NulConnect.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NulConnect.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		27B823002FF5855A00E51188 /* NulConnectTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NulConnectTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		27B8230A2FF5855A00E51188 /* NulConnectUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NulConnectUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		27B8231E2FF5855A00E51188 /* libreatrust.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libreatrust.dylib; path = Vendor/libreatrust/dynamic/libreatrust.dylib; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -79,6 +108,7 @@
 				27B823032FF5855A00E51188 /* NulConnectTests */,
 				27B8230D2FF5855A00E51188 /* NulConnectUITests */,
 				27B822F22FF5855900E51188 /* Products */,
+				27B823572FF5951D00E51188 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -92,6 +122,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		27B823572FF5951D00E51188 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				27B8231E2FF5855A00E51188 /* libreatrust.dylib */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -101,6 +139,7 @@
 			buildPhases = (
 				27B822ED2FF5855900E51188 /* Sources */,
 				27B822EE2FF5855900E51188 /* Frameworks */,
+				27B8231D2FF5855A00E51188 /* CopyFiles */,
 				27B822EF2FF5855900E51188 /* Resources */,
 			);
 			buildRules = (
@@ -146,6 +185,7 @@
 			buildPhases = (
 				27B823062FF5855A00E51188 /* Sources */,
 				27B823072FF5855A00E51188 /* Frameworks */,
+				27B823212FF5855A00E51188 /* CopyFiles */,
 				27B823082FF5855A00E51188 /* Resources */,
 			);
 			buildRules = (
@@ -322,13 +362,27 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Vendor/libreatrust/include",
+					"$(inherited)",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Vendor/libreatrust/dynamic",
+					"$(SRCROOT)/Vendor/libreatrust/static",
+					"$(inherited)",
+				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lreatrust",
+				);
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OBJC_BRIDGING_HEADER = "NulConnect-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
@@ -380,12 +434,26 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/Vendor/libreatrust/include",
+					"$(inherited)",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/Vendor/libreatrust/dynamic",
+					"$(SRCROOT)/Vendor/libreatrust/static",
+					"$(inherited)",
+				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lreatrust",
+				);
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OBJC_BRIDGING_HEADER = "NulConnect-Bridging-Header.h";
 			};
 			name = Release;
 		};
@@ -394,6 +462,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = NulConnect/NulConnect.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -402,8 +471,8 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = NulConnect/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -426,6 +495,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = NulConnect/NulConnect.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -434,8 +504,8 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = NulConnect/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

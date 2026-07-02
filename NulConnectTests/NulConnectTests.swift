@@ -5,15 +5,88 @@
 //  Created by 孙天阳 on 2026/7/2.
 //
 
+import Foundation
 import Testing
 @testable import NulConnect
 
 struct NulConnectTests {
+    @Test func profileStoreRoundTrip() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = try ProfileStore(baseDirectory: root)
 
-    @Test func example() async throws {
-        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
-        // Swift Testing Documentation
-        // https://developer.apple.com/documentation/testing
+        var profile = NulConnectProfile.default
+        profile.serverHost = "vpn.example.com"
+        profile.serverPort = 8443
+        profile.loginDomain = "hit.example.com"
+        profile.routeMode = .tun
+        profile.useSystemProxy = false
+
+        try store.save(profile)
+        let loaded = try store.load()
+
+        #expect(loaded == profile)
+    }
+
+    @Test func resourceSnapshotRoundTrip() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = try ResourceSnapshotStore(baseDirectory: root)
+        let snapshot = ATRResourceSnapshot(
+            resourceBytes: Data([0xde, 0xad, 0xbe, 0xef]),
+            dnsServer: "8.8.8.8",
+            majorNodeGroup: "cn",
+            ipResources: [
+                ATRIPResource(ipMin: "10.0.0.1", ipMax: "10.0.0.10", portMin: 80, portMax: 443, protocolName: "tcp", appID: "app", nodeGroupID: "group")
+            ],
+            domainResources: [],
+            dnsResources: [],
+            nodeGroups: [],
+            excludedIPs: ["127.0.0.1"]
+        )
+
+        try store.save(snapshot)
+        let loadedSnapshot = try store.load()
+        let loaded = try #require(loadedSnapshot)
+
+        #expect(loaded.resourceBytes == snapshot.resourceBytes)
+        #expect(loaded.dnsServer == snapshot.dnsServer)
+        #expect(loaded.majorNodeGroup == snapshot.majorNodeGroup)
+        #expect(loaded.ipResources.count == 1)
+        #expect(loaded.excludedIPs == ["127.0.0.1"])
+    }
+
+    @Test func proxyHTTPParserHandlesConnectAndRewrite() throws {
+        let raw = Data("GET http://example.com/index.html?x=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n".utf8)
+        let request = try #require(NulConnectProxyParser.parseHTTPProxyRequest(raw))
+        #expect(request.method == "GET")
+        #expect(request.target.contains("http://example.com"))
+
+        let rewritten = NulConnectProxyParser.rewriteHTTPProxyRequest(request, host: "example.com", port: 80)
+        let rewrittenText = String(data: rewritten, encoding: .utf8)
+        #expect(rewrittenText?.contains("GET /index.html?x=1 HTTP/1.1") == true)
+        #expect(rewrittenText?.contains("Host: example.com") == true)
+    }
+
+    @Test func proxySocks5ParserParsesDomainConnect() throws {
+        let data = Data([0x05, 0x01, 0x00, 0x03, 0x0b]) + Data("example.com".utf8) + Data([0x01, 0xbb])
+        let parsed = try NulConnectProxyParser.parseSOCKS5ConnectRequest(data)
+        let request = try #require(parsed)
+        #expect(request.host == "example.com")
+        #expect(request.port == 443)
+    }
+
+    @Test func loginCallbackPolicyValidatesCASAndOAuth2() throws {
+        let casPolicy = NulConnectWebLoginCapturePolicy.cas(baseHost: "ivpn.hit.edu.cn")
+        let casURL = URL(string: "https://ids-hit-edu-cn-s.ivpn.hit.edu.cn/passport/v1/auth/cas?ticket=abc123")!
+        #expect(casPolicy.shouldCapture(casURL))
+        let normalizedCASURL = try casPolicy.validate(casURL)
+        #expect(normalizedCASURL.host == "ivpn.hit.edu.cn")
+        #expect(normalizedCASURL.query?.contains("ticket=abc123") == true)
+
+        let oauthPolicy = NulConnectWebLoginCapturePolicy.httpsOauth2(baseHost: "ivpn.hit.edu.cn")
+        let oauthURL = URL(string: "https://ivpn.hit.edu.cn/passport/v1/auth/httpsOauth2?code=code123&state=null")!
+        #expect(oauthPolicy.shouldCapture(oauthURL))
+        let normalizedOAuthURL = try oauthPolicy.validate(oauthURL)
+        #expect(normalizedOAuthURL.absoluteString.contains("code=code123"))
     }
 
 }
