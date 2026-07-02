@@ -89,4 +89,80 @@ struct NulConnectTests {
         #expect(normalizedOAuthURL.absoluteString.contains("code=code123"))
     }
 
+    @Test func dnsResolverUsesStaticSnapshotRecordsBeforeNetwork() async throws {
+        let resolver = NulConnectDNSResolver(resource: dnsTestSnapshot())
+
+        let resolution = try await resolver.resolveARecords(for: "WWW.CNKI.NET.")
+
+        #expect(resolution.domain == "www.cnki.net")
+        #expect(resolution.ipv4Addresses == ["10.160.22.90"])
+        #expect(resolution.source == .snapshot)
+        #expect(resolution.isManagedDomain)
+
+        let route = await resolver.cachedRoute(for: "10.160.22.90")
+        #expect(route?.isManaged == true)
+        #expect(route?.sourceDomain == "www.cnki.net")
+    }
+
+    @Test func dnsResolverClassifiesManagedDomainPatterns() {
+        let resolver = NulConnectDNSResolver(resource: dnsTestSnapshot())
+
+        #expect(resolver.isManagedDomain("www.cnki.net"))
+        #expect(resolver.isManagedDomain("sub.cnki.net"))
+        #expect(resolver.isManagedDomain("i.hit.edu.cn"))
+        #expect(!resolver.isManagedDomain("example.com"))
+    }
+
+    @Test func dnsResolverClassifiesManagedIPRanges() {
+        let resolver = NulConnectDNSResolver(resource: dnsTestSnapshot())
+
+        #expect(resolver.isManagedIPAddress("10.160.22.90"))
+        #expect(resolver.isManagedIPAddress("10.160.22.91"))
+        #expect(!resolver.isManagedIPAddress("8.8.8.8"))
+    }
+
+    private func dnsTestSnapshot() -> ATRResourceSnapshot {
+        ATRResourceSnapshot(
+            resourceBytes: Data([0x01]),
+            dnsServer: "10.254.253.229",
+            majorNodeGroup: "group",
+            ipResources: [
+                ATRIPResource(
+                    ipMin: "10.160.22.1",
+                    ipMax: "10.160.22.254",
+                    portMin: 1,
+                    portMax: 65535,
+                    protocolName: "all",
+                    appID: "ip-app",
+                    nodeGroupID: "group"
+                )
+            ],
+            domainResources: [
+                ATRDomainResource(
+                    domain: ".cnki.net",
+                    portMin: 1,
+                    portMax: 65535,
+                    protocolName: "tcp",
+                    appID: "domain-app",
+                    nodeGroupID: "group"
+                ),
+                ATRDomainResource(
+                    domain: "i.hit.edu.cn",
+                    portMin: 0,
+                    portMax: 0,
+                    protocolName: "icmp",
+                    appID: "icmp-app",
+                    nodeGroupID: "group"
+                )
+            ],
+            dnsResources: [
+                ATRDNSResource(domain: "www.cnki.net", ip: "10.160.22.90")
+            ],
+            nodeGroups: [
+                ATRNodeGroup(groupID: "group", addresses: ["202.118.253.228:441"])
+            ],
+            excludedIPs: []
+        )
+    }
+
 }

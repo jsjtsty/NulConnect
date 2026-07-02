@@ -2,15 +2,6 @@ import Foundation
 import Darwin
 import Network
 
-struct NulConnectProxyEndpoint: Sendable, Codable, Equatable {
-    var host: String
-    var port: UInt16
-
-    var displayString: String {
-        "\(host):\(port)"
-    }
-}
-
 enum NulConnectProxyServiceError: LocalizedError {
     case missingSession
     case missingResource

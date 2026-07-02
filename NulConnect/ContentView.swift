@@ -95,7 +95,7 @@ struct ContentView: View {
                     copyProxyEndpoint()
                 }
                 DetailRow(title: "系统代理", value: "未开放", symbol: "macwindow")
-                DetailRow(title: "运行状态", value: proxyStateText, symbol: proxyStateSymbol)
+                DetailRow(title: "运行状态", value: runtimeStateText, symbol: runtimeStateSymbol)
                 }
             }
         .groupBoxStyle(.automatic)
@@ -121,11 +121,34 @@ struct ContentView: View {
         }
     }
 
+    private var tunnelStateText: String {
+        switch model.tunnelState {
+        case .stopped:
+            return "未启动"
+        case .starting:
+            return "启动中"
+        case .running:
+            return "运行中"
+        case .stopping:
+            return "停止中"
+        case .failed(let message):
+            return "失败 · \(message)"
+        }
+    }
+
+    private var runtimeStateText: String {
+        model.effectiveRouteMode == .tun ? tunnelStateText : proxyStateText
+    }
+
     private var isProxyRunning: Bool {
         if case .running = model.proxyState {
             return true
         }
         return false
+    }
+
+    private var isTunnelRunning: Bool {
+        model.isTunnelRunning
     }
 
     private var isProxyBusy: Bool {
@@ -137,13 +160,25 @@ struct ContentView: View {
         }
     }
 
+    private var isTunnelBusy: Bool {
+        model.isTunnelBusy
+    }
+
     private var isPrimaryActionDisabled: Bool {
-        model.effectiveRouteMode != .proxy || isProxyBusy
+        switch model.effectiveRouteMode {
+        case .proxy:
+            return isProxyBusy
+        case .tun:
+            return !model.isTunnelFeatureAvailable || isTunnelBusy
+        }
     }
 
     private var primaryActionTitle: String {
         if model.effectiveRouteMode == .tun {
-            return "TUN 模式待接入"
+            if isTunnelRunning {
+                return "断开连接"
+            }
+            return model.needsHITLoginForTunnel ? "登录并连接" : "连接"
         }
         if isProxyRunning {
             return "断开连接"
@@ -153,13 +188,13 @@ struct ContentView: View {
 
     private var primaryActionImage: String {
         if model.effectiveRouteMode == .tun {
-            return "network"
+            return isTunnelRunning ? "stop.fill" : "network"
         }
         return isProxyRunning ? "stop.fill" : "power"
     }
 
     private var primaryActionTint: Color {
-        isProxyRunning ? .red : .accentColor
+        (isProxyRunning || isTunnelRunning) ? .red : .accentColor
     }
 
     private var statusColor: Color {
@@ -201,11 +236,37 @@ struct ContentView: View {
         }
     }
 
+    private var tunnelStateSymbol: String {
+        switch model.tunnelState {
+        case .running:
+            return "checkmark.circle"
+        case .failed:
+            return "exclamationmark.triangle"
+        case .starting, .stopping:
+            return "arrow.triangle.2.circlepath"
+        case .stopped:
+            return "pause.circle"
+        }
+    }
+
+    private var runtimeStateSymbol: String {
+        model.effectiveRouteMode == .tun ? tunnelStateSymbol : proxyStateSymbol
+    }
+
     private func performPrimaryConnectionAction() {
-        if isProxyRunning {
-            model.stopProxyMode()
-        } else {
-            model.startProxyMode()
+        switch model.effectiveRouteMode {
+        case .proxy:
+            if isProxyRunning {
+                model.stopProxyMode()
+            } else {
+                model.startProxyMode()
+            }
+        case .tun:
+            if isTunnelRunning {
+                model.stopTunnelMode()
+            } else {
+                model.startTunnelMode()
+            }
         }
     }
 
@@ -305,7 +366,11 @@ struct NulConnectSettingsView: View {
                     get: { model.effectiveRouteMode },
                     set: { newValue in
                         model.replaceProfile { profile in
-                            profile.routeMode = newValue == .tun ? .proxy : newValue
+                            if newValue == .tun && !model.isTunnelFeatureAvailable {
+                                profile.routeMode = .proxy
+                            } else {
+                                profile.routeMode = newValue
+                            }
                             profile.useSystemProxy = false
                         }
                     }
@@ -315,7 +380,20 @@ struct NulConnectSettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .disabled(true)
+                .disabled(!model.isTunnelFeatureAvailable || model.isProxyRunning || model.isTunnelRunning || model.isProxyBusy || model.isTunnelBusy)
+
+                if !model.isTunnelFeatureAvailable {
+                    HStack(alignment: .center, spacing: 8) {
+                        Image(systemName: "lock.shield")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+
+                        Text(model.tunnelUnavailableMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
 
                 Toggle("启用系统代理", isOn: Binding(
                     get: { false },
@@ -462,13 +540,22 @@ struct NulConnectMenuBarContent: View {
             }
 
             Button(model.isProxyRunning ? "停止代理" : "启动代理") {
-                if model.isProxyRunning {
-                    model.stopProxyMode()
-                } else {
-                    model.startProxyMode()
+                switch model.effectiveRouteMode {
+                case .proxy:
+                    if model.isProxyRunning {
+                        model.stopProxyMode()
+                    } else {
+                        model.startProxyMode()
+                    }
+                case .tun:
+                    if model.isTunnelRunning {
+                        model.stopTunnelMode()
+                    } else {
+                        model.startTunnelMode()
+                    }
                 }
             }
-            .disabled(model.profile.routeMode != .proxy || model.isProxyBusy)
+            .disabled(model.isProxyBusy || model.isTunnelBusy)
 
             SettingsLink {
                 Text("打开设置")

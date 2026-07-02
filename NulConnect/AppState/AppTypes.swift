@@ -182,10 +182,27 @@ struct NulConnectSessionSummary: Codable, Sendable, Equatable {
     }
 }
 
+struct NulConnectProxyEndpoint: Sendable, Codable, Equatable {
+    var host: String
+    var port: UInt16
+
+    var displayString: String {
+        "\(host):\(port)"
+    }
+}
+
 enum NulConnectProxyRuntimeState: Equatable, Sendable {
     case stopped
     case starting
     case running(endpoint: NulConnectProxyEndpoint)
+    case stopping
+    case failed(message: String)
+}
+
+enum NulConnectTunnelRuntimeState: Equatable, Sendable {
+    case stopped
+    case starting
+    case running
     case stopping
     case failed(message: String)
 }

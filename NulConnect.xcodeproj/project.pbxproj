@@ -10,6 +10,14 @@
 		27B8231F2FF5855A00E51188 /* libreatrust.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		27B823202FF5855A00E51188 /* libreatrust.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		27B823222FF5855A00E51188 /* libreatrust.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		27B8240E2FF7000000E51188 /* NulConnectTunnelExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 27B824022FF7000000E51188 /* NulConnectTunnelExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		27B8240F2FF7000000E51188 /* libreatrust.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		27B824102FF7000000E51188 /* libreatrust.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		27B824122FF7000000E51188 /* LibreATrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824042FF7000000E51188 /* LibreATrust.swift */; };
+		27B824132FF7000000E51188 /* AppTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824052FF7000000E51188 /* AppTypes.swift */; };
+		27B824142FF7000000E51188 /* NulConnectJSON.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824062FF7000000E51188 /* NulConnectJSON.swift */; };
+		27B824152FF7000000E51188 /* NulConnectDNSResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824072FF7000000E51188 /* NulConnectDNSResolver.swift */; };
+		27B824162FF7000000E51188 /* NulConnectTunnelLaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824082FF7000000E51188 /* NulConnectTunnelLaunchConfiguration.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -26,6 +34,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 27B822F02FF5855900E51188;
 			remoteInfo = NulConnect;
+		};
+		27B824182FF7000000E51188 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 27B822E92FF5855900E51188 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 27B824012FF7000000E51188;
+			remoteInfo = NulConnectTunnelExtension;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -50,6 +65,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		27B824092FF7000000E51188 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				27B8240E2FF7000000E51188 /* NulConnectTunnelExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		27B8240D2FF7000000E51188 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				27B824102FF7000000E51188 /* libreatrust.dylib in CopyFiles */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -57,6 +93,13 @@
 		27B823002FF5855A00E51188 /* NulConnectTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NulConnectTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		27B8230A2FF5855A00E51188 /* NulConnectUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NulConnectUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		27B8231E2FF5855A00E51188 /* libreatrust.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libreatrust.dylib; path = Vendor/libreatrust/dynamic/libreatrust.dylib; sourceTree = SOURCE_ROOT; };
+		27B824022FF7000000E51188 /* NulConnectTunnelExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NulConnectTunnelExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		27B824032FF7000000E51188 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnectTunnelExtension/PacketTunnelProvider.swift; sourceTree = SOURCE_ROOT; };
+		27B824042FF7000000E51188 /* LibreATrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/LibreATrust/LibreATrust.swift; sourceTree = SOURCE_ROOT; };
+		27B824052FF7000000E51188 /* AppTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/AppState/AppTypes.swift; sourceTree = SOURCE_ROOT; };
+		27B824062FF7000000E51188 /* NulConnectJSON.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/Persistence/NulConnectJSON.swift; sourceTree = SOURCE_ROOT; };
+		27B824072FF7000000E51188 /* NulConnectDNSResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/Tunnel/NulConnectDNSResolver.swift; sourceTree = SOURCE_ROOT; };
+		27B824082FF7000000E51188 /* NulConnectTunnelLaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -73,6 +116,11 @@
 		27B8230D2FF5855A00E51188 /* NulConnectUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = NulConnectUITests;
+			sourceTree = "<group>";
+		};
+		27B824002FF7000000E51188 /* NulConnectTunnelExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = NulConnectTunnelExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -100,6 +148,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		27B8240A2FF7000000E51188 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				27B8240F2FF7000000E51188 /* libreatrust.dylib in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -107,6 +163,7 @@
 			isa = PBXGroup;
 			children = (
 				27B822F32FF5855900E51188 /* NulConnect */,
+				27B824002FF7000000E51188 /* NulConnectTunnelExtension */,
 				27B823032FF5855A00E51188 /* NulConnectTests */,
 				27B8230D2FF5855A00E51188 /* NulConnectUITests */,
 				27B822F22FF5855900E51188 /* Products */,
@@ -118,6 +175,7 @@
 			isa = PBXGroup;
 			children = (
 				27B822F12FF5855900E51188 /* NulConnect.app */,
+				27B824022FF7000000E51188 /* NulConnectTunnelExtension.appex */,
 				27B823002FF5855A00E51188 /* NulConnectTests.xctest */,
 				27B8230A2FF5855A00E51188 /* NulConnectUITests.xctest */,
 			);
@@ -128,6 +186,12 @@
 			isa = PBXGroup;
 			children = (
 				27B8231E2FF5855A00E51188 /* libreatrust.dylib */,
+				27B824032FF7000000E51188 /* PacketTunnelProvider.swift */,
+				27B824042FF7000000E51188 /* LibreATrust.swift */,
+				27B824052FF7000000E51188 /* AppTypes.swift */,
+				27B824062FF7000000E51188 /* NulConnectJSON.swift */,
+				27B824072FF7000000E51188 /* NulConnectDNSResolver.swift */,
+				27B824082FF7000000E51188 /* NulConnectTunnelLaunchConfiguration.swift */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -205,6 +269,29 @@
 			productReference = 27B8230A2FF5855A00E51188 /* NulConnectUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		27B824012FF7000000E51188 /* NulConnectTunnelExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 27B8241C2FF7000000E51188 /* Build configuration list for PBXNativeTarget "NulConnectTunnelExtension" */;
+			buildPhases = (
+				27B8240B2FF7000000E51188 /* Sources */,
+				27B8240A2FF7000000E51188 /* Frameworks */,
+				27B8240D2FF7000000E51188 /* CopyFiles */,
+				27B8240C2FF7000000E51188 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				27B824002FF7000000E51188 /* NulConnectTunnelExtension */,
+			);
+			name = NulConnectTunnelExtension;
+			packageProductDependencies = (
+			);
+			productName = NulConnectTunnelExtension;
+			productReference = 27B824022FF7000000E51188 /* NulConnectTunnelExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -226,6 +313,9 @@
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = 27B822F02FF5855900E51188;
 					};
+					27B824012FF7000000E51188 = {
+						CreatedOnToolsVersion = 26.6;
+					};
 				};
 			};
 			buildConfigurationList = 27B822EC2FF5855900E51188 /* Build configuration list for PBXProject "NulConnect" */;
@@ -243,6 +333,7 @@
 			projectRoot = "";
 			targets = (
 				27B822F02FF5855900E51188 /* NulConnect */,
+				27B824012FF7000000E51188 /* NulConnectTunnelExtension */,
 				27B822FF2FF5855A00E51188 /* NulConnectTests */,
 				27B823092FF5855A00E51188 /* NulConnectUITests */,
 			);
@@ -265,6 +356,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		27B823082FF5855A00E51188 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		27B8240C2FF7000000E51188 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -295,6 +393,18 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		27B8240B2FF7000000E51188 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				27B824122FF7000000E51188 /* LibreATrust.swift in Sources */,
+				27B824132FF7000000E51188 /* AppTypes.swift in Sources */,
+				27B824142FF7000000E51188 /* NulConnectJSON.swift in Sources */,
+				27B824152FF7000000E51188 /* NulConnectDNSResolver.swift in Sources */,
+				27B824162FF7000000E51188 /* NulConnectTunnelLaunchConfiguration.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -307,6 +417,11 @@
 			isa = PBXTargetDependency;
 			target = 27B822F02FF5855900E51188 /* NulConnect */;
 			targetProxy = 27B8230B2FF5855A00E51188 /* PBXContainerItemProxy */;
+		};
+		27B824192FF7000000E51188 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 27B824012FF7000000E51188 /* NulConnectTunnelExtension */;
+			targetProxy = 27B824182FF7000000E51188 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -607,6 +722,77 @@
 			};
 			name = Release;
 		};
+		27B8241A2FF7000000E51188 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_ENTITLEMENTS = NulConnectTunnelExtension/NulConnectTunnelExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3F5CH9XJ2Z;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = NulConnectTunnelExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.1;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lreatrust",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nulstudio.NulConnect.TunnelExtension;
+				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) NULCONNECT_ENABLE_TUN";
+				SWIFT_OBJC_BRIDGING_HEADER = "NulConnect-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		27B8241B2FF7000000E51188 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_ENTITLEMENTS = NulConnectTunnelExtension/NulConnectTunnelExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3F5CH9XJ2Z;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = NulConnectTunnelExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.1;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lreatrust",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nulstudio.NulConnect.TunnelExtension;
+				PRODUCT_BUNDLE_PACKAGE_TYPE = "XPC!";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) NULCONNECT_ENABLE_TUN";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OBJC_BRIDGING_HEADER = "NulConnect-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -642,6 +828,15 @@
 			buildConfigurations = (
 				27B8231B2FF5855A00E51188 /* Debug */,
 				27B8231C2FF5855A00E51188 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		27B8241C2FF7000000E51188 /* Build configuration list for PBXNativeTarget "NulConnectTunnelExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				27B8241A2FF7000000E51188 /* Debug */,
+				27B8241B2FF7000000E51188 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
