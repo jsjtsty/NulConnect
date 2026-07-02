@@ -5,14 +5,18 @@ actor NulConnectAuthEngine {
     private var configuration: ATRAuthConfiguration?
     private var callbackDeviceID: String?
 
-    func loadMethods(configuration: ATRAuthConfiguration) throws -> [ATRAuthMethod] {
-        let session = try ATRAuthSession(configuration: configuration)
+    func loadMethods(configuration: ATRAuthConfiguration) async throws -> [ATRAuthMethod] {
+        let (session, methods) = try await NulConnectAuthWorker.run {
+            let session = try ATRAuthSession(configuration: configuration)
+            let methods = try session.availableMethods()
+            return (session, methods)
+        }
         self.session = session
         self.configuration = configuration
-        return try session.availableMethods()
+        return methods
     }
 
-    func resolveWebLoginSession(for method: ATRAuthMethod) throws -> NulConnectWebLoginSession {
+    func resolveWebLoginSession(for method: ATRAuthMethod) async throws -> NulConnectWebLoginSession {
         guard let session, let configuration else {
             throw NulConnectLoginError.noSession
         }
@@ -21,9 +25,11 @@ actor NulConnectAuthEngine {
         }
 
         let deviceID = UUID().uuidString.lowercased()
-        try session.prepareCallbackLogin(deviceID: deviceID)
+        let startURL = try await NulConnectAuthWorker.run {
+            try session.prepareCallbackLogin(deviceID: deviceID)
+            return try session.resolveLoginURL(method.loginURL)
+        }
         callbackDeviceID = deviceID
-        let startURL = try session.resolveLoginURL(method.loginURL)
         return NulConnectWebLoginSession(
             id: UUID(),
             method: method,
@@ -36,7 +42,7 @@ actor NulConnectAuthEngine {
         )
     }
 
-    func completeWebLogin(callbackURL: URL, method: ATRAuthMethod) throws -> ATRAuthChallenge {
+    func completeWebLogin(callbackURL: URL, method: ATRAuthMethod) async throws -> ATRAuthChallenge {
         guard let session, let configuration else {
             throw NulConnectLoginError.noSession
         }
@@ -44,14 +50,18 @@ actor NulConnectAuthEngine {
             throw NulConnectLoginError.noSession
         }
         let validatedURL = try Self.validateCallbackURL(callbackURL, method: method, baseHost: configuration.serverHost)
-        return try session.completeCallback(validatedURL, deviceID: callbackDeviceID)
+        return try await NulConnectAuthWorker.run {
+            try session.completeCallback(validatedURL, deviceID: callbackDeviceID)
+        }
     }
 
-    func fetchClientResource() throws -> Data {
+    func fetchClientResource() async throws -> Data {
         guard let session else {
             throw NulConnectLoginError.noSession
         }
-        return try session.fetchClientResource()
+        return try await NulConnectAuthWorker.run {
+            try session.fetchClientResource()
+        }
     }
 
     func reset() {
@@ -78,4 +88,20 @@ actor NulConnectAuthEngine {
         return try policy.validate(callbackURL)
     }
 
+}
+
+private nonisolated enum NulConnectAuthWorker {
+    private static let queue = DispatchQueue(label: "com.nulstudio.NulConnect.auth-worker", qos: .utility)
+
+    static func run<T>(_ operation: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+            queue.async {
+                do {
+                    continuation.resume(returning: try operation())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
 }

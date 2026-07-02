@@ -7,7 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		27B8231F2FF5855A00E51188 /* libreatrust.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		27B8231F2FF5855A00E51188 /* libreatrust.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		27B823222FF5855A00E51188 /* libreatrust.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		27B823202FF5855A00E51188 /* libreatrust.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -35,7 +36,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				27B8231F2FF5855A00E51188 /* libreatrust.dylib in CopyFiles */,
+				27B823222FF5855A00E51188 /* libreatrust.dylib in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -81,6 +82,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				27B8231F2FF5855A00E51188 /* libreatrust.dylib in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -462,6 +464,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ARCHS = arm64;
 				CODE_SIGN_ENTITLEMENTS = NulConnect/NulConnect.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -495,6 +498,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ARCHS = arm64;
 				CODE_SIGN_ENTITLEMENTS = NulConnect/NulConnect.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;

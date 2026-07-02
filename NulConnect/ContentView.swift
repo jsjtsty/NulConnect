@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var windowCoordinator: NulConnectWindowCoordinator
 
     var body: some View {
         VStack(spacing: 0) {
@@ -10,14 +11,16 @@ struct ContentView: View {
                 connectionHeader
                 primaryAction
                 connectionDetails
-                if model.needsHITLoginForProxy {
-                    loginPrompt
-                }
             }
             .padding(24)
         }
         .frame(width: 460)
         .background(Color(nsColor: .windowBackgroundColor))
+        .background(
+            NulConnectWindowAccessor { window in
+                windowCoordinator.register(window: window, role: .main)
+            }
+        )
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 SettingsLink {
@@ -98,42 +101,6 @@ struct ContentView: View {
         .groupBoxStyle(.automatic)
     }
 
-    private var loginPrompt: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "person.badge.key")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 24)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("需要 HIT 登录")
-                            .font(.headline)
-                        Text(loginPromptText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-
-                if let detail = model.loginStateDetailText {
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(loginDetailStyle)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Button("登录 HIT") {
-                    model.startWebLogin()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!model.isLoginConfigurationReady)
-            }
-        }
-        .groupBoxStyle(.automatic)
-    }
-
     private var connectionSubtitle: String {
         let host = model.profile.serverHost.isEmpty ? "未配置服务器" : model.profile.serverHost
         return "\(host):\(model.profile.serverPort)"
@@ -195,16 +162,6 @@ struct ContentView: View {
         isProxyRunning ? .red : .accentColor
     }
 
-    private var loginPromptText: String {
-        if !model.isLoginConfigurationReady {
-            return "请先在设置中填写 VPN 门户地址。"
-        }
-        if model.sessionSummary == nil {
-            return "连接前需要完成一次 HIT Web 登录。登录成功后，会话会保存在本机。"
-        }
-        return "已保存会话，但缺少资源快照。重新登录可刷新连接所需资源。"
-    }
-
     private var statusColor: Color {
         switch model.connectionState.phase {
         case .connected:
@@ -228,30 +185,6 @@ struct ContentView: View {
             return "exclamationmark.triangle.fill"
         case .disconnected:
             return "shield"
-        }
-    }
-
-    private var loginStateSymbol: String {
-        switch model.loginState {
-        case .failed:
-            return "xmark.circle"
-        case .succeeded:
-            return "checkmark.seal"
-        case .loadingMethods, .presenting, .finalizing:
-            return "arrow.triangle.2.circlepath"
-        default:
-            return "person.crop.circle"
-        }
-    }
-
-    private var loginDetailStyle: Color {
-        switch model.loginState {
-        case .failed:
-            return .orange
-        case .succeeded:
-            return .green
-        default:
-            return .secondary
         }
     }
 
@@ -285,6 +218,7 @@ struct ContentView: View {
 
 struct NulConnectSettingsView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var windowCoordinator: NulConnectWindowCoordinator
 
     var body: some View {
         TabView {
@@ -303,8 +237,14 @@ struct NulConnectSettingsView: View {
                     Label("数据", systemImage: "externaldrive")
                 }
         }
-        .frame(width: 620, height: 430)
+        .frame(width: 560)
+        .fixedSize(horizontal: false, vertical: true)
         .padding(20)
+        .background(
+            NulConnectWindowAccessor { window in
+                windowCoordinator.register(window: window, role: .settings)
+            }
+        )
     }
 
     private var serviceSettings: some View {
@@ -467,6 +407,55 @@ struct NulConnectSettingsView: View {
     }
 }
 
+struct NulConnectMenuBarContent: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var windowCoordinator: NulConnectWindowCoordinator
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(menuStatusText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            Button("打开主窗口") {
+                windowCoordinator.activateForPresentation()
+                openWindow(id: "main")
+            }
+
+            Button(model.isProxyRunning ? "停止代理" : "启动代理") {
+                if model.isProxyRunning {
+                    model.stopProxyMode()
+                } else {
+                    model.startProxyMode()
+                }
+            }
+            .disabled(model.profile.routeMode != .proxy || model.isProxyBusy)
+
+            SettingsLink {
+                Text("打开设置")
+            }
+
+            Divider()
+
+            Button("退出") {
+                NSApp.terminate(nil)
+            }
+        }
+        .frame(width: 204, alignment: .leading)
+        .padding(12)
+    }
+
+    private var menuStatusText: String {
+        let phase = model.connectionState.phase.title
+        let host = model.profile.serverHost.isEmpty ? "未配置服务器" : model.profile.serverHost
+        return "\(phase) · \(host)"
+    }
+}
+
 private struct DetailRow<ActionContent: View>: View {
     let title: String
     let value: String
@@ -574,4 +563,10 @@ private struct SettingsActionRow: View {
 #Preview("Settings") {
     NulConnectSettingsView()
         .environmentObject(AppModel.bootstrap())
+}
+
+#Preview("Menu Bar") {
+    NulConnectMenuBarContent()
+        .environmentObject(AppModel.bootstrap())
+        .environmentObject(NulConnectWindowCoordinator())
 }

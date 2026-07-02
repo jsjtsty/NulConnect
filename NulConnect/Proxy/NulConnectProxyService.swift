@@ -77,6 +77,8 @@ final class NulConnectProxyGateway {
 }
 
 final class NulConnectProxyService {
+    var onSessionInvalidated: (@Sendable (Error) -> Void)?
+
     private let gateway: NulConnectProxyGateway
     private let resource: ATRResourceSnapshot
     private let listenHostString: String
@@ -294,6 +296,7 @@ final class NulConnectProxyService {
             await relayBidirectional(a: clientChannel, b: remote, label: "\(host):\(port)")
         } catch {
             print("[NulConnect][Proxy][CONNECT] failed host='\(host)' port=\(port) error=\(error)")
+            notifySessionInvalidatedIfNeeded(error)
             switch mode {
             case .httpConnect:
                 await clientChannel.close()
@@ -304,22 +307,45 @@ final class NulConnectProxyService {
         }
     }
 
-    private func forwardRequest(clientChannel: NulConnectNWByteChannel, host: String, port: UInt16, initialPayload: Data) async throws {
-        let route = try await resolvedTCPRoute(host: host, port: port)
-        print("[NulConnect][Proxy][HTTP] forward host='\(host)' port=\(port) route=\(route.decision) connectHost='\(route.connectHost)' reason='\(route.reason)' payloadBytes=\(initialPayload.count)")
-        let remote: NulConnectByteChannel
-        switch route.decision {
-        case .managed:
-            let tunnel = try await gateway.openTCP(host: route.connectHost, port: port)
-            remote = NulConnectATRTunnelChannel(tunnel: tunnel)
-            print("[NulConnect][Proxy][HTTP] managed tunnel opened host='\(route.connectHost)' originalHost='\(host)' port='\(port)'")
-        case .direct:
-            remote = try await NulConnectNWByteChannel.connect(host: host, port: port, queue: queue)
-            print("[NulConnect][Proxy][HTTP] direct connection opened host='\(host)' port='\(port)'")
+    private func notifySessionInvalidatedIfNeeded(_ error: Error) {
+        guard Self.isInvalidSIDError(error) else {
+            return
         }
+        onSessionInvalidated?(error)
+    }
 
-        try await remote.send(initialPayload)
-        await relayBidirectional(a: clientChannel, b: remote, label: "\(host):\(port)")
+    private static func isInvalidSIDError(_ error: Error) -> Bool {
+        switch error {
+        case LibreATrustError.networkFailed(let message),
+             LibreATrustError.unauthorized(let message),
+             LibreATrustError.invalidState(let message):
+            return message.localizedCaseInsensitiveContains("invalid SID")
+        default:
+            return error.localizedDescription.localizedCaseInsensitiveContains("invalid SID")
+        }
+    }
+
+    private func forwardRequest(clientChannel: NulConnectNWByteChannel, host: String, port: UInt16, initialPayload: Data) async throws {
+        do {
+            let route = try await resolvedTCPRoute(host: host, port: port)
+            print("[NulConnect][Proxy][HTTP] forward host='\(host)' port=\(port) route=\(route.decision) connectHost='\(route.connectHost)' reason='\(route.reason)' payloadBytes=\(initialPayload.count)")
+            let remote: NulConnectByteChannel
+            switch route.decision {
+            case .managed:
+                let tunnel = try await gateway.openTCP(host: route.connectHost, port: port)
+                remote = NulConnectATRTunnelChannel(tunnel: tunnel)
+                print("[NulConnect][Proxy][HTTP] managed tunnel opened host='\(route.connectHost)' originalHost='\(host)' port='\(port)'")
+            case .direct:
+                remote = try await NulConnectNWByteChannel.connect(host: host, port: port, queue: queue)
+                print("[NulConnect][Proxy][HTTP] direct connection opened host='\(host)' port='\(port)'")
+            }
+
+            try await remote.send(initialPayload)
+            await relayBidirectional(a: clientChannel, b: remote, label: "\(host):\(port)")
+        } catch {
+            notifySessionInvalidatedIfNeeded(error)
+            throw error
+        }
     }
 
     private func resolvedTCPRoute(host: String, port: UInt16) async throws -> ProxyResolvedRoute {

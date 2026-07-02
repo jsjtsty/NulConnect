@@ -117,6 +117,35 @@ final class AppModel: ObservableObject {
         profile.routeMode == .proxy && profile.useSystemProxy
     }
 
+    var isProxyRunning: Bool {
+        if case .running = proxyState {
+            return true
+        }
+        return false
+    }
+
+    var isProxyBusy: Bool {
+        switch proxyState {
+        case .starting, .stopping:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var menuBarSystemImage: String {
+        switch connectionState.phase {
+        case .connected:
+            return "checkmark.shield.fill"
+        case .connecting, .disconnecting:
+            return "arrow.triangle.2.circlepath"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        case .disconnected:
+            return "shield"
+        }
+    }
+
     var isLoginConfigurationReady: Bool {
         let host = profile.serverHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return !host.isEmpty && host != "localhost" && host != "127.0.0.1"
@@ -521,6 +550,11 @@ final class AppModel: ObservableObject {
                     session: session,
                     resource: resource
                 )
+                service.onSessionInvalidated = { [weak self] error in
+                    Task { @MainActor [weak self] in
+                        self?.handleProxySessionInvalidated(error)
+                    }
+                }
                 let endpoint = try await service.start()
                 await MainActor.run {
                     self.proxyService = service
@@ -580,6 +614,30 @@ final class AppModel: ObservableObject {
             updatedAt: .now
         )
         bannerMessage = "代理模式已停止"
+    }
+
+    private func handleProxySessionInvalidated(_ error: Error) {
+        print("[NulConnect][Proxy] session invalidated: \(error)")
+        proxyService?.stop()
+        proxyService = nil
+        proxyTask?.cancel()
+        proxyTask = nil
+
+        try? sessionVault.clear()
+        try? resourceStore.delete()
+        storedSessionMaterial = nil
+        sessionSummary = nil
+        resourceSnapshot = nil
+
+        proxyState = .failed(message: "登录会话已失效")
+        connectionState = NulConnectConnectionState(
+            phase: .failed,
+            message: "登录会话已失效，请重新登录",
+            updatedAt: .now
+        )
+        loginState = .failed(message: "登录会话已失效，请重新登录")
+        bannerMessage = "登录会话已失效，请重新登录"
+        lastPersistenceErrorMessage = error.localizedDescription
     }
 
     private func scheduleProfilePersistence() {
