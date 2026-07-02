@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import WebKit
 
@@ -159,112 +160,81 @@ struct NulConnectWebLoginSheet: View {
     let session: NulConnectWebLoginSession
     let onCaptured: (URL) -> Void
     let onCancel: () -> Void
-    @State private var currentAddress: String
     @State private var errorMessage: String?
 
     init(session: NulConnectWebLoginSession, onCaptured: @escaping (URL) -> Void, onCancel: @escaping () -> Void) {
         self.session = session
         self.onCaptured = onCaptured
         self.onCancel = onCancel
-        _currentAddress = State(initialValue: session.startURL.absoluteString)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().opacity(0.12)
+
+            if let errorMessage {
+                errorBanner(errorMessage)
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 12)
+            }
+
             NulConnectWebViewLoginView(
                 session: session,
                 onCaptured: onCaptured,
-                onStatusChange: { address in
-                    currentAddress = address
-                },
+                onStatusChange: { _ in },
                 onFailure: { message in
                     errorMessage = message
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Divider().opacity(0.12)
-            footer
-        }
-        .frame(minWidth: 1200, minHeight: 860)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(red: 0.08, green: 0.10, blue: 0.14),
-                    Color(red: 0.11, green: 0.13, blue: 0.18)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
             )
-        )
-        .overlay(alignment: .topTrailing) {
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .padding(.top, 16)
-                    .padding(.trailing, 18)
-            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 18)
         }
+        .frame(minWidth: 980, minHeight: 680)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "person.badge.key")
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, height: 36)
+
+                VStack(alignment: .leading, spacing: 3) {
                     Text(session.title)
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .font(.title3.weight(.semibold))
                     Text(session.subtitle)
                         .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.68))
+                        .foregroundStyle(.secondary)
                 }
+
                 Spacer()
+
                 Button("取消") {
                     onCancel()
                 }
                 .buttonStyle(.bordered)
+                .keyboardShortcut(.cancelAction)
             }
-
-            Text(session.captureHint)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.70))
-
-            HStack(spacing: 10) {
-                Image(systemName: "link")
-                    .foregroundStyle(.white.opacity(0.6))
-                Text(currentAddress)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.72))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 12)
-            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-        .padding(20)
+        .padding(18)
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private var footer: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("完成登录后窗口会自动关闭")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.72))
-                Text("如果页面跳转过快，仍会在捕获到回调后结束")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.48))
-            }
-            Spacer()
-            Button("关闭窗口") {
-                onCancel()
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .padding(20)
-        .fixedSize(horizontal: false, vertical: true)
+    private func errorBanner(_ message: String) -> some View {
+        Label(message, systemImage: "exclamationmark.triangle")
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

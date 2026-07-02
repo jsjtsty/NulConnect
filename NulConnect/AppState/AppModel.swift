@@ -122,6 +122,14 @@ final class AppModel: ObservableObject {
         return !host.isEmpty && host != "localhost" && host != "127.0.0.1"
     }
 
+    var isReadyForProxyMode: Bool {
+        storedSessionMaterial != nil && resourceSnapshot != nil
+    }
+
+    var needsHITLoginForProxy: Bool {
+        !isReadyForProxyMode
+    }
+
     var clientConfiguration: ATRClientConfiguration {
         ATRClientConfiguration(
             serverHost: profile.serverHost,
@@ -366,7 +374,7 @@ final class AppModel: ObservableObject {
 
     func startWebLogin(using method: ATRAuthMethod? = nil) {
         guard isLoginConfigurationReady else {
-            loginState = .idle
+            loginState = .failed(message: "请先在设置中填写服务地址")
             bannerMessage = "请先填写服务地址并保存"
             return
         }
@@ -483,6 +491,10 @@ final class AppModel: ObservableObject {
     func startProxyMode() {
         guard profile.routeMode == .proxy else {
             bannerMessage = "当前不是代理模式"
+            return
+        }
+        guard isReadyForProxyMode else {
+            startWebLogin()
             return
         }
         guard proxyService == nil else {

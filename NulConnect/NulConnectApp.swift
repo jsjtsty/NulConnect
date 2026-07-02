@@ -9,6 +9,12 @@ struct NulConnectApp: App {
             ContentView()
                 .environmentObject(model)
         }
+        .defaultSize(width: 460, height: 520)
+        .windowResizability(.contentSize)
+
+        Settings {
+            NulConnectSettingsView()
+                .environmentObject(model)
+        }
     }
 }
-
