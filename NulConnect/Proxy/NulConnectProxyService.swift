@@ -66,7 +66,7 @@ final class NulConnectProxyService {
     private let listenHostString: String
     private let listenHost: NWEndpoint.Host
     private let listenPort: NWEndpoint.Port
-    private let queue = DispatchQueue(label: "com.nulstudio.NulConnect.proxy")
+    private let queue = DispatchQueue(label: "com.nulstudio.NulConnect.proxy", qos: .utility)
     private var listener: NWListener?
     private(set) var endpoint: NulConnectProxyEndpoint?
 
@@ -352,13 +352,17 @@ final class NulConnectProxyService {
     private func copyLoop(source: NulConnectByteChannel, destination: NulConnectByteChannel, direction: String, label: String) async {
         do {
             var totalBytes = 0
+            var nextLogThreshold = 1024 * 1024
             while !Task.isCancelled {
-                guard let chunk = try await source.receive(maxLength: 16 * 1024), !chunk.isEmpty else {
+                guard let chunk = try await source.receive(maxLength: 64 * 1024), !chunk.isEmpty else {
                     print("[NulConnect][Proxy][Relay] \(label) \(direction) closed totalBytes=\(totalBytes)")
                     break
                 }
                 totalBytes += chunk.count
-                print("[NulConnect][Proxy][Relay] \(label) \(direction) chunkBytes=\(chunk.count) totalBytes=\(totalBytes)")
+                if totalBytes >= nextLogThreshold {
+                    print("[NulConnect][Proxy][Relay] \(label) \(direction) transferred totalBytes=\(totalBytes)")
+                    nextLogThreshold += 1024 * 1024
+                }
                 try await destination.send(chunk)
             }
         } catch {
@@ -666,7 +670,8 @@ private final class NulConnectNWByteChannel: NulConnectByteChannel {
 
 private final class NulConnectATRTunnelChannel: NulConnectByteChannel {
     private let tunnel: ATRTcpTunnel
-    private let queue = DispatchQueue(label: "com.nulstudio.NulConnect.atr-tunnel")
+    private let readQueue = DispatchQueue(label: "com.nulstudio.NulConnect.atr-tunnel.read", qos: .utility)
+    private let writeQueue = DispatchQueue(label: "com.nulstudio.NulConnect.atr-tunnel.write", qos: .utility)
 
     init(tunnel: ATRTcpTunnel) {
         self.tunnel = tunnel
@@ -674,7 +679,7 @@ private final class NulConnectATRTunnelChannel: NulConnectByteChannel {
 
     func send(_ data: Data) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            queue.async {
+            writeQueue.async {
                 do {
                     _ = try self.tunnel.write(data)
                     continuation.resume(returning: ())
@@ -686,26 +691,20 @@ private final class NulConnectATRTunnelChannel: NulConnectByteChannel {
     }
 
     func receive(maxLength: Int) async throws -> Data? {
-        while !Task.isCancelled {
-            let data = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-                queue.async {
-                    do {
-                        continuation.resume(returning: try self.tunnel.read(maxLength: maxLength))
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data?, Error>) in
+            readQueue.async {
+                do {
+                    let data = try self.tunnel.read(maxLength: maxLength)
+                    continuation.resume(returning: data.isEmpty ? nil : data)
+                } catch {
+                    continuation.resume(throwing: error)
                 }
             }
-            if !data.isEmpty {
-                return data
-            }
-            try await Task.sleep(nanoseconds: 20_000_000)
         }
-        return nil
     }
 
     func close() async {
-        queue.async {
+        writeQueue.async {
             try? self.tunnel.close()
         }
     }
