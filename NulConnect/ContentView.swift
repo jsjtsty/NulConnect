@@ -236,6 +236,11 @@ struct NulConnectSettingsView: View {
                 .tabItem {
                     Label("数据", systemImage: "externaldrive")
                 }
+
+            aboutSettings
+                .tabItem {
+                    Label("关于", systemImage: "info.circle")
+                }
         }
         .frame(width: 560)
         .fixedSize(horizontal: false, vertical: true)
@@ -398,6 +403,18 @@ struct NulConnectSettingsView: View {
         .formStyle(.grouped)
     }
 
+    private var aboutSettings: some View {
+        Form {
+            Section("关于 NulConnect") {
+                LabeledContent("版本号", value: appVersionText)
+                LabeledContent("构建版本号", value: appBuildText)
+                LabeledContent("版权信息", value: "Copyright (C) NulStudio 2014-2026")
+                LabeledContent("许可证", value: "GNU Affero General Public Licence v3.0")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
     private var sessionSummaryText: String {
         guard let summary = model.sessionSummary else {
             return "未保存"
@@ -411,6 +428,16 @@ struct NulConnectSettingsView: View {
         }
         return "\(snapshot.resourceBytes.count) 字节 · \(snapshot.ipResources.count) IP · \(snapshot.domainResources.count) 域名"
     }
+
+    private var appVersionText: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        return version?.isEmpty == false ? version ?? "未知" : "未知"
+    }
+
+    private var appBuildText: String {
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        return build?.isEmpty == false ? build ?? "未知" : "未知"
+    }
 }
 
 struct NulConnectMenuBarContent: View {
@@ -421,13 +448,13 @@ struct NulConnectMenuBarContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(menuStatusText)
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Divider()
 
-            Button("打开主窗口") {
+            Button("打开主界面") {
                 if !windowCoordinator.activateForPresentation(role: .main) {
                     openWindow(id: "main")
                 }
