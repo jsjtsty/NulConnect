@@ -1,31 +1,56 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var showsAdvancedSettings = false
 
     var body: some View {
         ZStack {
             background
+
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 18) {
                     header
 
                     if let bannerMessage = model.bannerMessage {
                         InfoBanner(text: bannerMessage)
                     }
 
-                    statusCard
-                    connectionCard
-                    loginCard
-                    proxyCard
-                    profileCard
-                    persistenceCard
+                    connectionOverview
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 16) {
+                            loginCard
+                            proxyCard
+                        }
+
+                        VStack(spacing: 16) {
+                            loginCard
+                            proxyCard
+                        }
+                    }
+
+                    DisclosureGroup(isExpanded: $showsAdvancedSettings) {
+                        VStack(spacing: 16) {
+                            profileCard
+                            persistenceCard
+                        }
+                        .padding(.top, 12)
+                    } label: {
+                        Label("高级设置与本地数据", systemImage: "slider.horizontal.3")
+                            .font(.headline)
+                    }
+                    .padding(18)
+                    .glassCard()
                 }
-                .padding(24)
-                .frame(maxWidth: 920, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 22)
+                .frame(maxWidth: 980, alignment: .topLeading)
+                .frame(maxWidth: .infinity)
             }
         }
-        .background(Color.black.opacity(0.001))
+        .background(Color(nsColor: .windowBackgroundColor))
         .sheet(item: $model.webLoginSession, onDismiss: {
             model.cancelWebLogin()
         }) { session in
@@ -42,63 +67,101 @@ struct ContentView: View {
     }
 
     private var background: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.07, green: 0.09, blue: 0.12),
-                Color(red: 0.11, green: 0.13, blue: 0.18),
-                Color(red: 0.08, green: 0.10, blue: 0.14)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
-        .overlay(alignment: .topTrailing) {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+                .ignoresSafeArea()
+
+            LinearGradient(
+                colors: [
+                    Color.accentColor.opacity(0.10),
+                    Color(nsColor: .windowBackgroundColor).opacity(0.0),
+                    Color.teal.opacity(0.08)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
             Circle()
-                .fill(Color.cyan.opacity(0.14))
-                .frame(width: 260, height: 260)
-                .blur(radius: 50)
-                .offset(x: 70, y: -40)
+                .fill(Color.accentColor.opacity(0.12))
+                .frame(width: 360, height: 360)
+                .blur(radius: 80)
+                .offset(x: 390, y: -250)
+
+            Circle()
+                .fill(Color.cyan.opacity(0.09))
+                .frame(width: 300, height: 300)
+                .blur(radius: 90)
+                .offset(x: -360, y: 330)
         }
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("NulConnect")
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                Text("轻量的 HIT 连接器，先把状态、配置和持久化跑稳。")
-                    .foregroundStyle(.white.opacity(0.72))
+                    .font(.system(size: 30, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+
+                Text("HIT aTrust 轻量连接器")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 8) {
-                StatusPill(phase: model.connectionState.phase)
-                Text(model.profile.routeMode.title)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text(model.profile.routeMode.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.68))
-                    .multilineTextAlignment(.trailing)
-            }
+
+            Spacer(minLength: 12)
+
+            StatusPill(phase: model.connectionState.phase)
         }
     }
 
-    private var statusCard: some View {
-        SectionCard(title: "当前状态", systemImage: "dot.radiowaves.left.and.right") {
-            VStack(alignment: .leading, spacing: 12) {
-                LabeledValue(label: "连接阶段", value: model.connectionState.phase.title)
-                LabeledValue(label: "状态说明", value: model.connectionState.message ?? "暂无")
-                LabeledValue(label: "系统代理", value: model.effectiveSystemProxyEnabled ? "已启用" : "未启用")
-                LabeledValue(label: "代理状态", value: proxyStateText)
-            }
-        }
-    }
+    private var connectionOverview: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        StatusDot(phase: model.connectionState.phase)
+                        Text(model.connectionState.phase.title)
+                            .font(.title2.weight(.semibold))
+                    }
 
-    private var connectionCard: some View {
-        SectionCard(title: "连接模式", systemImage: "switch.2") {
-            VStack(alignment: .leading, spacing: 16) {
-                Picker("模式", selection: Binding(
+                    Text(connectionSubtitle)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+
+                    if let message = model.connectionState.message {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                    }
+                }
+
+                Spacer(minLength: 16)
+
+                VStack(alignment: .trailing, spacing: 10) {
+                    Button(role: isProxyRunning ? .destructive : nil) {
+                        performPrimaryConnectionAction()
+                    } label: {
+                        Label(primaryActionTitle, systemImage: primaryActionImage)
+                            .frame(minWidth: 112)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(primaryActionTint)
+                    .disabled(isPrimaryActionDisabled)
+
+                    Text(primaryActionHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 14) {
+                Picker("连接模式", selection: Binding(
                     get: { model.profile.routeMode },
                     set: { newValue in
                         model.replaceProfile { profile in
@@ -115,79 +178,96 @@ struct ContentView: View {
                 }
                 .pickerStyle(.segmented)
 
-                Toggle(
-                    "使用系统代理",
-                    isOn: Binding(
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    Label(model.profile.routeMode.subtitle, systemImage: model.profile.routeMode == .proxy ? "point.3.connected.trianglepath.dotted" : "network")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer(minLength: 12)
+
+                    Toggle("系统代理", isOn: Binding(
                         get: { model.profile.useSystemProxy },
                         set: { newValue in
                             model.replaceProfile { profile in
                                 profile.useSystemProxy = profile.routeMode == .proxy ? newValue : false
                             }
                         }
-                    )
-                )
-                .disabled(model.profile.routeMode == .tun)
-                .opacity(model.profile.routeMode == .tun ? 0.45 : 1)
-
-                Text(model.profile.routeMode.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    ))
+                    .toggleStyle(.switch)
+                    .disabled(model.profile.routeMode == .tun)
+                    .opacity(model.profile.routeMode == .tun ? 0.45 : 1)
+                }
             }
         }
+        .padding(22)
+        .glassCard(prominence: .strong)
     }
 
     private var loginCard: some View {
-        SectionCard(title: "HIT 登录", systemImage: "person.text.rectangle") {
+        SectionCard(title: "HIT 登录", systemImage: "person.badge.key") {
             VStack(alignment: .leading, spacing: 14) {
-                LabeledValue(label: "登录状态", value: model.loginStateText)
+                StatusRow(title: "登录状态", value: model.loginStateText, symbol: loginStateSymbol)
+
                 if let detail = model.loginStateDetailText {
                     Text(detail)
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(loginDetailStyle)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if model.webLoginMethods.isEmpty {
-                    Text(model.isLoginConfigurationReady ? "点击刷新会拉取当前服务器支持的 WebView 登录方式。当前只实现 HIT 的 CAS 和 OAuth2 流程。" : "请先填写上方的服务地址并保存，然后再刷新登录方式。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    EmptyStateText(
+                        text: model.isLoginConfigurationReady
+                            ? "刷新后会显示当前服务器支持的 WebView 登录方式。当前只实现 HIT CAS / OAuth2 链路。"
+                            : "请先填写服务地址，然后刷新登录方式。"
+                    )
                 } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("可用登录方式")
-                            .font(.caption)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("可用方式")
+                            .font(.caption.weight(.medium))
                             .foregroundStyle(.secondary)
+
                         ForEach(model.webLoginMethods) { method in
                             Button {
                                 model.startWebLogin(using: method)
                             } label: {
-                                HStack {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "globe.asia.australia")
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 18)
+
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(method.authName.isEmpty ? method.authType : method.authName)
-                                            .font(.body.weight(.medium))
+                                            .font(.callout.weight(.medium))
+                                            .foregroundStyle(.primary)
                                         Text("\(method.loginDomain) · \(method.authType)")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
+
                                     Spacer()
-                                    Image(systemName: "arrow.up.right.square")
-                                        .foregroundStyle(.secondary)
+
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.plain)
+                            .padding(10)
+                            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                     }
                 }
 
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     Button("刷新登录方式") {
                         model.refreshLoginMethods()
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.isLoginConfigurationReady)
 
-                    Button("默认方式登录") {
+                    Button("默认登录") {
                         model.startWebLogin()
                     }
                     .buttonStyle(.bordered)
@@ -200,25 +280,24 @@ struct ContentView: View {
     private var proxyCard: some View {
         SectionCard(title: "代理运行", systemImage: "network") {
             VStack(alignment: .leading, spacing: 14) {
-                LabeledValue(label: "监听地址", value: model.proxyEndpointText)
-                LabeledValue(label: "当前状态", value: proxyStateText)
+                StatusRow(title: "监听地址", value: model.proxyEndpointText, symbol: "dot.radiowaves.left.and.right")
+                StatusRow(title: "运行状态", value: proxyStateText, symbol: proxyStateSymbol)
+                StatusRow(title: "系统代理", value: model.effectiveSystemProxyEnabled ? "已启用" : "未启用", symbol: "macwindow")
 
-                Text("代理模式会在本机启动一个监听器，浏览器或其他客户端可以直接指向这里。若后续接入系统代理，这里会成为系统代理的落点。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                EmptyStateText(text: "SOCKS5 / HTTP 代理会监听本机端口。默认只作为本地代理使用；开启系统代理后由系统转发。")
 
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     Button("启动代理") {
                         model.startProxyMode()
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.proxyEndpointText.isEmpty)
+                    .disabled(model.profile.routeMode != .proxy)
 
                     Button("停止代理") {
                         model.stopProxyMode()
                     }
                     .buttonStyle(.bordered)
+                    .disabled(isProxyStopped)
                 }
             }
         }
@@ -236,6 +315,7 @@ struct ContentView: View {
                             }
                         ))
                     }
+
                     Field("端口") {
                         TextField("443", value: Binding(
                             get: { model.profile.serverPort },
@@ -245,6 +325,7 @@ struct ContentView: View {
                         ), format: .number)
                         .multilineTextAlignment(.trailing)
                     }
+
                     Field("登录域") {
                         TextField("cas93482", text: Binding(
                             get: { model.profile.loginDomain },
@@ -253,6 +334,7 @@ struct ContentView: View {
                             }
                         ))
                     }
+
                     Field("首选认证") {
                         TextField("optional", text: Binding(
                             get: { model.profile.preferredAuthType ?? "" },
@@ -261,6 +343,7 @@ struct ContentView: View {
                             }
                         ))
                     }
+
                     Field("User-Agent") {
                         TextField("NulConnect/1.0", text: Binding(
                             get: { model.profile.userAgent },
@@ -269,6 +352,7 @@ struct ContentView: View {
                             }
                         ))
                     }
+
                     Field("允许不安全 TLS") {
                         Toggle("", isOn: Binding(
                             get: { model.profile.allowInsecureTLS },
@@ -280,9 +364,9 @@ struct ContentView: View {
                     }
                 }
 
-                Divider().opacity(0.18)
+                Divider()
 
-                HStack {
+                HStack(spacing: 10) {
                     Button("保存设置") {
                         model.saveProfileNow()
                     }
@@ -298,17 +382,19 @@ struct ContentView: View {
     }
 
     private var persistenceCard: some View {
-        SectionCard(title: "持久化", systemImage: "externaldrive") {
+        SectionCard(title: "本地数据", systemImage: "externaldrive") {
             VStack(alignment: .leading, spacing: 12) {
-                LabeledValue(label: "会话", value: sessionSummaryText)
-                LabeledValue(label: "资源快照", value: resourceSummaryText)
+                StatusRow(title: "会话", value: sessionSummaryText, symbol: "person.crop.circle.badge.checkmark")
+                StatusRow(title: "资源快照", value: resourceSummaryText, symbol: "square.stack.3d.up")
+
                 if let error = model.lastPersistenceErrorMessage {
                     Text("最近错误: \(error)")
                         .font(.caption)
                         .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     Button("重新载入") {
                         model.reloadPersistedState()
                     }
@@ -326,6 +412,11 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private var connectionSubtitle: String {
+        let host = model.profile.serverHost.isEmpty ? "未配置服务器" : model.profile.serverHost
+        return "\(host):\(model.profile.serverPort) · \(model.profile.routeMode.title)"
     }
 
     private var sessionSummaryText: String {
@@ -356,34 +447,144 @@ struct ContentView: View {
             return "失败 · \(message)"
         }
     }
+
+    private var isProxyRunning: Bool {
+        if case .running = model.proxyState {
+            return true
+        }
+        return false
+    }
+
+    private var isProxyStopped: Bool {
+        if case .stopped = model.proxyState {
+            return true
+        }
+        return false
+    }
+
+    private var isProxyBusy: Bool {
+        switch model.proxyState {
+        case .starting, .stopping:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var isPrimaryActionDisabled: Bool {
+        model.profile.routeMode != .proxy || isProxyBusy
+    }
+
+    private var primaryActionTitle: String {
+        if model.profile.routeMode == .tun {
+            return "TUN 待接入"
+        }
+        return isProxyRunning ? "断开" : "连接"
+    }
+
+    private var primaryActionImage: String {
+        if model.profile.routeMode == .tun {
+            return "network"
+        }
+        return isProxyRunning ? "stop.fill" : "bolt.horizontal.fill"
+    }
+
+    private var primaryActionTint: Color {
+        isProxyRunning ? .red : .accentColor
+    }
+
+    private var primaryActionHint: String {
+        if model.profile.routeMode == .tun {
+            return "当前界面先接入代理模式"
+        }
+        return isProxyRunning ? "停止本地代理监听" : "启动本地代理监听"
+    }
+
+    private var loginStateSymbol: String {
+        switch model.loginState {
+        case .failed:
+            return "xmark.circle"
+        case .succeeded:
+            return "checkmark.seal"
+        case .loadingMethods, .presenting, .finalizing:
+            return "arrow.triangle.2.circlepath"
+        default:
+            return "person.crop.circle"
+        }
+    }
+
+    private var loginDetailStyle: Color {
+        switch model.loginState {
+        case .failed:
+            return .orange
+        case .succeeded:
+            return .green
+        default:
+            return .secondary
+        }
+    }
+
+    private var proxyStateSymbol: String {
+        switch model.proxyState {
+        case .running:
+            return "checkmark.circle"
+        case .failed:
+            return "exclamationmark.triangle"
+        case .starting, .stopping:
+            return "arrow.triangle.2.circlepath"
+        case .stopped:
+            return "pause.circle"
+        }
+    }
+
+    private func performPrimaryConnectionAction() {
+        if isProxyRunning {
+            model.stopProxyMode()
+        } else {
+            model.startProxyMode()
+        }
+    }
 }
 
 private struct StatusPill: View {
     let phase: NulConnectConnectionPhase
 
     var body: some View {
-        Text(phase.title)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(background, in: Capsule())
-            .overlay(
-                Capsule()
-                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-            )
-            .foregroundStyle(.white)
+        HStack(spacing: 7) {
+            StatusDot(phase: phase)
+            Text(phase.title)
+                .font(.caption.weight(.semibold))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+    }
+}
+
+private struct StatusDot: View {
+    let phase: NulConnectConnectionPhase
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 9, height: 9)
+            .shadow(color: color.opacity(0.45), radius: 4)
     }
 
-    private var background: some ShapeStyle {
+    private var color: Color {
         switch phase {
         case .connected:
-            Color.green.opacity(0.28)
+            return .green
         case .connecting, .disconnecting:
-            Color.orange.opacity(0.28)
+            return .orange
         case .failed:
-            Color.red.opacity(0.28)
+            return .red
         case .disconnected:
-            Color.white.opacity(0.10)
+            return .secondary
         }
     }
 }
@@ -401,22 +602,21 @@ private struct SectionCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Image(systemName: systemImage)
                     .font(.headline)
-                    .foregroundStyle(.cyan)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22)
+
                 Text(title)
                     .font(.headline)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
             }
+
             content
         }
         .padding(18)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-        )
+        .glassCard()
     }
 }
 
@@ -424,34 +624,56 @@ private struct InfoBanner: View {
     let text: String
 
     var body: some View {
-        Text(text)
+        Label(text, systemImage: "info.circle")
             .font(.callout)
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
             )
     }
 }
 
-private struct LabeledValue: View {
-    let label: String
+private struct StatusRow: View {
+    let title: String
     let value: String
+    let symbol: String
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label)
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: symbol)
                 .foregroundStyle(.secondary)
-            Spacer()
+                .frame(width: 18)
+
+            Text(title)
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 12)
+
             Text(value)
                 .multilineTextAlignment(.trailing)
                 .foregroundStyle(.primary)
+                .textSelection(.enabled)
         }
         .font(.subheadline)
+    }
+}
+
+private struct EmptyStateText: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -484,11 +706,72 @@ private struct TwoColumnGrid<Content: View>: View {
 
     var body: some View {
         LazyVGrid(columns: [
-            GridItem(.flexible(minimum: 160), spacing: 16),
-            GridItem(.flexible(minimum: 160), spacing: 16)
+            GridItem(.flexible(minimum: 180), spacing: 16),
+            GridItem(.flexible(minimum: 180), spacing: 16)
         ], spacing: 14) {
             content
         }
+    }
+}
+
+private enum GlassCardProminence {
+    case regular
+    case strong
+}
+
+private struct GlassCardModifier: ViewModifier {
+    let prominence: GlassCardProminence
+
+    func body(content: Content) -> some View {
+        content
+            .background(material, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(strokeOpacity), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(shadowOpacity), radius: 24, x: 0, y: 14)
+    }
+
+    private var material: Material {
+        switch prominence {
+        case .regular:
+            return .regularMaterial
+        case .strong:
+            return .thickMaterial
+        }
+    }
+
+    private var cornerRadius: CGFloat {
+        switch prominence {
+        case .regular:
+            return 18
+        case .strong:
+            return 24
+        }
+    }
+
+    private var strokeOpacity: Double {
+        switch prominence {
+        case .regular:
+            return 0.08
+        case .strong:
+            return 0.11
+        }
+    }
+
+    private var shadowOpacity: Double {
+        switch prominence {
+        case .regular:
+            return 0.045
+        case .strong:
+            return 0.07
+        }
+    }
+}
+
+private extension View {
+    func glassCard(prominence: GlassCardProminence = .regular) -> some View {
+        modifier(GlassCardModifier(prominence: prominence))
     }
 }
 
