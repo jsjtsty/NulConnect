@@ -64,6 +64,18 @@ actor NulConnectAuthEngine {
         }
     }
 
+    func resumeSession(_ material: ATRSessionMaterial, configuration: ATRAuthConfiguration) async throws -> ATRSessionMaterial {
+        let (session, refreshed) = try await NulConnectAuthWorker.run {
+            let session = try ATRAuthSession(configuration: configuration)
+            let refreshed = try session.resumeSession(material)
+            return (session, refreshed)
+        }
+        self.session = session
+        self.configuration = configuration
+        self.callbackDeviceID = nil
+        return refreshed
+    }
+
     func reset() {
         session = nil
         configuration = nil

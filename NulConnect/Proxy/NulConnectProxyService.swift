@@ -86,6 +86,7 @@ final class NulConnectProxyService {
     private let listenPort: NWEndpoint.Port
     private let queue = DispatchQueue(label: "com.nulstudio.NulConnect.proxy", qos: .utility)
     private var listener: NWListener?
+    private var keepAliveTask: Task<Void, Never>?
     private(set) var endpoint: NulConnectProxyEndpoint?
 
     init(profile: NulConnectProfile, session: ATRSessionMaterial?, resource: ATRResourceSnapshot?, listenHost: String = "127.0.0.1", listenPort: UInt16 = 1080) async throws {
@@ -154,13 +155,50 @@ final class NulConnectProxyService {
         let endpoint = NulConnectProxyEndpoint(host: listenHostString, port: listenPort.rawValue)
         self.endpoint = endpoint
         logResourceSnapshot()
+        startKeepAlive()
         return endpoint
     }
 
     func stop() {
+        keepAliveTask?.cancel()
+        keepAliveTask = nil
         listener?.cancel()
         listener = nil
         endpoint = nil
+    }
+
+    private func startKeepAlive() {
+        keepAliveTask?.cancel()
+        keepAliveTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 15 * 60 * 1_000_000_000)
+                    try Task.checkCancellation()
+                    await self?.runKeepAlive()
+                } catch is CancellationError {
+                    return
+                } catch {
+                    print("[NulConnect][Proxy][KeepAlive] timer failed: \(error)")
+                }
+            }
+        }
+    }
+
+    private func runKeepAlive() async {
+        guard let target = managedProbeTarget() else {
+            print("[NulConnect][Proxy][KeepAlive] skipped: no managed TCP resource found")
+            return
+        }
+
+        do {
+            print("[NulConnect][Proxy][KeepAlive] begin host='\(target.host)' port=\(target.port)")
+            let tunnel = try await gateway.openTCP(host: target.host, port: target.port)
+            try? tunnel.close()
+            print("[NulConnect][Proxy][KeepAlive] success host='\(target.host)' port=\(target.port)")
+        } catch {
+            print("[NulConnect][Proxy][KeepAlive] failed host='\(target.host)' port=\(target.port) error=\(error)")
+            notifySessionInvalidatedIfNeeded(error)
+        }
     }
 
     private func handle(connection: NWConnection) async {

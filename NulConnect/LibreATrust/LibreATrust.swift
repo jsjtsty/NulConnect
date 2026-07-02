@@ -222,6 +222,18 @@ nonisolated final class ATRAuthSession {
         }
     }
 
+    func resumeSession(_ material: ATRSessionMaterial) throws -> ATRSessionMaterial {
+        try withRaw { raw in
+            try withSessionMaterialInput(material) { input in
+                var input = input
+                var output = makeEmptySessionMaterial()
+                try check(atr_auth_session_resume_session(raw, &input, &output))
+                defer { atr_session_material_free(&output) }
+                return decodeSessionMaterial(output)
+            }
+        }
+    }
+
     func fetchClientResource() throws -> Data {
         try withRaw { raw in
             var blob = atr_blob_t(data: nil, len: 0)

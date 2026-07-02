@@ -260,6 +260,7 @@ int atr_auth_session_complete_callback_with_device(atr_auth_session_t *session, 
 int atr_auth_session_fetch_client_resource(atr_auth_session_t *session, atr_blob_t *out);
 int atr_auth_session_get_client_resource(atr_auth_session_t *session, atr_blob_t *out);
 int atr_auth_session_import_session(atr_auth_session_t *session, const atr_session_material_input_t *session_material);
+int atr_auth_session_resume_session(atr_auth_session_t *session, const atr_session_material_input_t *session_material, atr_session_material_t *out);
 int atr_auth_session_export_session(const atr_auth_session_t *session, atr_session_material_t *out);
 
 #ifdef __cplusplus

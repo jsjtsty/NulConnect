@@ -63,11 +63,7 @@ final class AppModel: ObservableObject {
             let profileStore = try ProfileStore()
             let sessionVault = try SessionVault()
             let resourceStore = try ResourceSnapshotStore()
-            let loadedProfile = try profileStore.load()
-            let profile = loadedProfile.normalizedForHITAuth()
-            if profile != loadedProfile {
-                try profileStore.save(profile)
-            }
+            let profile = try profileStore.load()
             let sessionMaterial = try sessionVault.load()
             let sessionSummary = try sessionVault.loadSummary() ?? sessionMaterial.map { NulConnectSessionSummary(material: $0) }
             if sessionSummary == nil, let sessionMaterial {
@@ -89,11 +85,7 @@ final class AppModel: ObservableObject {
                 let profileStore = try ProfileStore(baseDirectory: fallbackRoot)
                 let sessionVault = try SessionVault(baseDirectory: fallbackRoot)
                 let resourceStore = try ResourceSnapshotStore(baseDirectory: fallbackRoot)
-                let loadedProfile = (try? profileStore.load()) ?? .default
-                let profile = loadedProfile.normalizedForHITAuth()
-                if profile != loadedProfile {
-                    try? profileStore.save(profile)
-                }
+                let profile = (try? profileStore.load()) ?? .default
                 let sessionMaterial = try? sessionVault.load()
                 let sessionSummary = (try? sessionVault.loadSummary()) ?? sessionMaterial.map { NulConnectSessionSummary(material: $0) }
                 let resourceSnapshot = try? resourceStore.load()
@@ -114,7 +106,11 @@ final class AppModel: ObservableObject {
     }
 
     var effectiveSystemProxyEnabled: Bool {
-        profile.routeMode == .proxy && profile.useSystemProxy
+        runtimeProfile.useSystemProxy
+    }
+
+    var effectiveRouteMode: NulConnectRouteMode {
+        runtimeProfile.routeMode
     }
 
     var isProxyRunning: Bool {
@@ -152,7 +148,7 @@ final class AppModel: ObservableObject {
     }
 
     var isReadyForProxyMode: Bool {
-        storedSessionMaterial != nil && resourceSnapshot != nil
+        storedSessionMaterial != nil
     }
 
     var needsHITLoginForProxy: Bool {
@@ -160,40 +156,37 @@ final class AppModel: ObservableObject {
     }
 
     var clientConfiguration: ATRClientConfiguration {
-        ATRClientConfiguration(
-            serverHost: profile.serverHost,
-            serverPort: profile.serverPort,
-            userAgent: profile.userAgent,
-            connectTimeout: profile.connectTimeoutMillis,
-            ioTimeout: profile.ioTimeoutMillis,
-            nodeProbeTimeout: profile.nodeProbeTimeoutMillis,
-            allowInsecureTLS: profile.allowInsecureTLS
+        let runtimeProfile = self.runtimeProfile
+        return ATRClientConfiguration(
+            serverHost: runtimeProfile.serverHost,
+            serverPort: runtimeProfile.serverPort,
+            userAgent: runtimeProfile.userAgent,
+            connectTimeout: runtimeProfile.connectTimeoutMillis,
+            ioTimeout: runtimeProfile.ioTimeoutMillis,
+            nodeProbeTimeout: runtimeProfile.nodeProbeTimeoutMillis,
+            allowInsecureTLS: runtimeProfile.allowInsecureTLS
         )
     }
 
     var authConfiguration: ATRAuthConfiguration {
-        ATRAuthConfiguration(
-            serverHost: profile.serverHost,
-            serverPort: profile.serverPort,
-            userAgent: profile.userAgent,
-            clientType: profile.clientType,
-            platform: profile.platform,
-            loginDomain: profile.loginDomain,
-            preferredAuthType: profile.preferredAuthType,
-            ioTimeout: profile.ioTimeoutMillis,
-            allowInsecureTLS: profile.allowInsecureTLS
+        let runtimeProfile = self.runtimeProfile
+        return ATRAuthConfiguration(
+            serverHost: runtimeProfile.serverHost,
+            serverPort: runtimeProfile.serverPort,
+            userAgent: runtimeProfile.userAgent,
+            clientType: runtimeProfile.clientType,
+            platform: runtimeProfile.platform,
+            loginDomain: runtimeProfile.loginDomain,
+            preferredAuthType: runtimeProfile.preferredAuthType,
+            ioTimeout: runtimeProfile.ioTimeoutMillis,
+            allowInsecureTLS: runtimeProfile.allowInsecureTLS
         )
     }
 
     func reloadPersistedState() {
         do {
             suppressProfilePersistence = true
-            let loadedProfile = try profileStore.load()
-            let normalizedProfile = loadedProfile.normalizedForHITAuth()
-            profile = normalizedProfile
-            if normalizedProfile != loadedProfile {
-                try? profileStore.save(normalizedProfile)
-            }
+            profile = try profileStore.load()
             suppressProfilePersistence = false
             let sessionMaterial = try sessionVault.load()
             sessionSummary = try sessionVault.loadSummary() ?? sessionMaterial.map { NulConnectSessionSummary(material: $0) }
@@ -334,6 +327,30 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func refreshStoredSessionAndResourceForProxy() async throws -> (ATRSessionMaterial, ATRResourceSnapshot) {
+        guard let storedSessionMaterial else {
+            throw NulConnectProxyServiceError.missingSession
+        }
+
+        print("[NulConnect][Login] resume stored session start user='\(storedSessionMaterial.username)' deviceID='\(storedSessionMaterial.deviceID)'")
+        let refreshedMaterial = try await authEngine.resumeSession(storedSessionMaterial, configuration: authConfiguration)
+        try sessionVault.save(refreshedMaterial)
+        self.storedSessionMaterial = refreshedMaterial
+        self.sessionSummary = NulConnectSessionSummary(material: refreshedMaterial)
+        print("[NulConnect][Login] resume stored session success user='\(refreshedMaterial.username)' sidBytes=\(refreshedMaterial.sid.utf8.count) cookies=\(refreshedMaterial.cookies.count)")
+
+        let resourceBytes = try await authEngine.fetchClientResource()
+        print("[NulConnect][Login] refreshed client resource before proxy bytes=\(resourceBytes.count) preview='\(Self.resourcePreview(resourceBytes))'")
+        let client = try ATRClient(configuration: clientConfiguration)
+        try client.setSession(refreshedMaterial)
+        try client.setResource(resourceBytes, serviceHost: profile.serverHost)
+        let snapshot = try client.resourceSnapshot()
+        try resourceStore.save(snapshot)
+        self.resourceSnapshot = snapshot
+        print("[NulConnect][Login] refreshed resource before proxy: bytes=\(snapshot.resourceBytes.count) ip=\(snapshot.ipResources.count) domain=\(snapshot.domainResources.count) dns=\(snapshot.dnsResources.count) nodes=\(snapshot.nodeGroups.count)")
+        return (refreshedMaterial, snapshot)
+    }
+
     private nonisolated static func resourcePreview(_ data: Data) -> String {
         String(decoding: data.prefix(600), as: UTF8.self)
             .replacingOccurrences(of: "\n", with: "\\n")
@@ -345,7 +362,7 @@ final class AppModel: ObservableObject {
         case .running(let endpoint):
             return endpoint.displayString
         default:
-            return "127.0.0.1:1080"
+            return "127.0.0.1:\(runtimeProfile.localProxyPort)"
         }
     }
 
@@ -373,7 +390,8 @@ final class AppModel: ObservableObject {
         loginTask?.cancel()
         loginState = .loadingMethods
         bannerMessage = "正在获取 HIT 登录方式"
-        print("[NulConnect][Login] refresh methods start: serverHost='\(profile.serverHost)' port=\(profile.serverPort) loginDomain='\(profile.loginDomain)' preferredAuthType='\(profile.preferredAuthType ?? "")' clientType='\(profile.clientType)' platform='\(profile.platform)' allowInsecureTLS=\(profile.allowInsecureTLS)")
+        let runtimeProfile = self.runtimeProfile
+        print("[NulConnect][Login] refresh methods start: serverHost='\(runtimeProfile.serverHost)' port=\(runtimeProfile.serverPort) loginDomain='\(runtimeProfile.loginDomain)' preferredAuthType='\(runtimeProfile.preferredAuthType ?? "")' clientType='\(runtimeProfile.clientType)' platform='\(runtimeProfile.platform)' allowInsecureTLS=\(runtimeProfile.allowInsecureTLS)")
 
         let configuration = authConfiguration
         loginTask = Task { [authEngine] in
@@ -478,6 +496,13 @@ final class AppModel: ObservableObject {
                         self.saveSessionMaterial(material)
                         self.loginState = .succeeded(message: "会话已保存")
                         self.webLoginSession = nil
+                        if !self.isProxyRunning {
+                            self.connectionState = NulConnectConnectionState(
+                                phase: .disconnected,
+                                message: "已登录，可启动代理",
+                                updatedAt: .now
+                            )
+                        }
                         self.bannerMessage = "HIT 登录成功"
                     }
 
@@ -518,11 +543,11 @@ final class AppModel: ObservableObject {
     }
 
     func startProxyMode() {
-        guard profile.routeMode == .proxy else {
+        guard effectiveRouteMode == .proxy else {
             bannerMessage = "当前不是代理模式"
             return
         }
-        guard isReadyForProxyMode else {
+        guard storedSessionMaterial != nil else {
             startWebLogin()
             return
         }
@@ -538,17 +563,16 @@ final class AppModel: ObservableObject {
             updatedAt: .now
         )
 
-        let profile = self.profile
-        let session = storedSessionMaterial
-        let resource = resourceSnapshot
-
+        let profile = runtimeProfile
         proxyTask = Task { [weak self] in
             guard let self else { return }
             do {
+                let (session, resource) = try await self.refreshStoredSessionAndResourceForProxy()
                 let service = try await NulConnectProxyService(
                     profile: profile,
                     session: session,
-                    resource: resource
+                    resource: resource,
+                    listenPort: profile.localProxyPort
                 )
                 service.onSessionInvalidated = { [weak self] error in
                     Task { @MainActor [weak self] in
@@ -623,6 +647,57 @@ final class AppModel: ObservableObject {
         proxyTask?.cancel()
         proxyTask = nil
 
+        guard storedSessionMaterial != nil else {
+            failProxySessionInvalidated(error)
+            return
+        }
+
+        proxyState = .starting
+        connectionState = NulConnectConnectionState(
+            phase: .connecting,
+            message: "登录会话已失效，正在尝试恢复",
+            updatedAt: .now
+        )
+        bannerMessage = "正在恢复登录会话"
+        lastPersistenceErrorMessage = error.localizedDescription
+
+        let profile = runtimeProfile
+        proxyTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let (session, resource) = try await self.refreshStoredSessionAndResourceForProxy()
+                let service = try await NulConnectProxyService(
+                    profile: profile,
+                    session: session,
+                    resource: resource,
+                    listenPort: profile.localProxyPort
+                )
+                service.onSessionInvalidated = { [weak self] error in
+                    Task { @MainActor [weak self] in
+                        self?.handleProxySessionInvalidated(error)
+                    }
+                }
+                let endpoint = try await service.start()
+                await MainActor.run {
+                    self.proxyService = service
+                    self.proxyState = .running(endpoint: endpoint)
+                    self.connectionState = NulConnectConnectionState(
+                        phase: .connected,
+                        message: "本地代理已恢复 \(endpoint.displayString)",
+                        updatedAt: .now
+                    )
+                    self.bannerMessage = "登录会话已恢复"
+                    self.lastPersistenceErrorMessage = nil
+                }
+            } catch {
+                await MainActor.run {
+                    self.failProxySessionInvalidated(error)
+                }
+            }
+        }
+    }
+
+    private func failProxySessionInvalidated(_ error: Error) {
         try? sessionVault.clear()
         try? resourceStore.delete()
         storedSessionMaterial = nil
@@ -661,5 +736,12 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+    }
+
+    private var runtimeProfile: NulConnectProfile {
+        var profile = self.profile.normalizedForHITAuth()
+        profile.routeMode = .proxy
+        profile.useSystemProxy = false
+        return profile
     }
 }

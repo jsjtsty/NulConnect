@@ -2,36 +2,34 @@ import AppKit
 import Combine
 import SwiftUI
 
-enum NulConnectWindowRole: String, Sendable {
+enum NulConnectWindowRole: String, CaseIterable, Sendable {
     case main
     case settings
+
+    var windowIdentifier: NSUserInterfaceItemIdentifier {
+        NSUserInterfaceItemIdentifier("NulConnect.\(rawValue)")
+    }
 }
 
 @MainActor
 final class NulConnectWindowCoordinator: ObservableObject {
     let objectWillChange = ObservableObjectPublisher()
 
-    private var visibleWindowCount = 0
-    private var observers: [ObjectIdentifier: NulConnectWindowObserver] = [:]
+    private var notificationTokens: [NSObjectProtocol] = []
+    private let managedWindowIdentifiers = Set(NulConnectWindowRole.allCases.map(\.windowIdentifier))
+
+    init() {
+        observeWindowVisibility(NSWindow.willCloseNotification)
+        observeWindowVisibility(NSWindow.didMiniaturizeNotification)
+        observeWindowVisibility(NSWindow.didDeminiaturizeNotification)
+        observeWindowVisibility(NSWindow.didBecomeKeyNotification)
+        observeWindowVisibility(NSWindow.didResignKeyNotification)
+    }
 
     func register(window: NSWindow, role: NulConnectWindowRole) {
-        purgeReleasedWindows()
-        let key = ObjectIdentifier(window)
-        if let observer = observers[key] {
-            observer.role = role
-            return
-        }
-
-        if let existingWindow = primaryWindow(for: role), existingWindow !== window {
-            window.close()
-            updateVisibleWindowCount()
-            return
-        }
-
-        let observer = NulConnectWindowObserver(window: window, role: role, coordinator: self)
-        observers[key] = observer
-        window.delegate = observer
-        updateVisibleWindowCount()
+        window.identifier = role.windowIdentifier
+        scheduleDockPolicyUpdate(afterNanoseconds: 0, allowsAccessoryPolicy: false)
+        scheduleDockPolicyUpdate(afterNanoseconds: 150_000_000, allowsAccessoryPolicy: false)
     }
 
     @discardableResult
@@ -39,89 +37,89 @@ final class NulConnectWindowCoordinator: ObservableObject {
         NSApp.setActivationPolicy(.regular)
         var didShowWindow = false
         if let role {
-            didShowWindow = showWindow(role: role)
+            didShowWindow = showVisibleWindow(role: role)
         }
         NSApp.activate(ignoringOtherApps: true)
         return didShowWindow
     }
 
-    func unregister(window: NSWindow) {
-        observers.removeValue(forKey: ObjectIdentifier(window))
-        updateVisibleWindowCount()
+    func updateVisibilityAfterPresentation() {
+        scheduleDockPolicyUpdate(afterNanoseconds: 0, allowsAccessoryPolicy: false)
+        scheduleDockPolicyUpdate(afterNanoseconds: 250_000_000, allowsAccessoryPolicy: false)
     }
 
-    private func showWindow(role: NulConnectWindowRole) -> Bool {
-        purgeReleasedWindows()
-        guard let window = primaryWindow(for: role) else {
-            updateVisibleWindowCount()
+    private func showVisibleWindow(role: NulConnectWindowRole) -> Bool {
+        guard let window = visibleManagedWindows(role: role).first else {
             return false
         }
-
-        for observer in observers.values where observer.role == role && observer.window !== window {
-            observer.window?.orderOut(nil)
-        }
         window.makeKeyAndOrderFront(nil)
-        updateVisibleWindowCount()
+        scheduleDockPolicyUpdate(afterNanoseconds: 0, allowsAccessoryPolicy: false)
         return true
     }
 
-    private func primaryWindow(for role: NulConnectWindowRole) -> NSWindow? {
-        observers.values
-            .compactMap { observer -> NSWindow? in
-                guard observer.role == role else {
-                    return nil
-                }
-                return observer.window
+    private func observeWindowVisibility(_ name: Notification.Name) {
+        let token = NotificationCenter.default.addObserver(
+            forName: name,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let window = notification.object as? NSWindow else {
+                return
             }
-            .first
-    }
-
-    private func purgeReleasedWindows() {
-        observers = observers.filter { _, observer in
-            observer.window != nil
+            Task { @MainActor [weak self] in
+                self?.handleWindowVisibilityChange(window)
+            }
         }
+        notificationTokens.append(token)
     }
 
-    private func updateVisibleWindowCount() {
-        let nextVisibleWindowCount = observers.values.filter { observer in
-            guard let window = observer.window else {
-                return false
-            }
-            return window.isVisible && !window.isMiniaturized
-        }.count
-        guard nextVisibleWindowCount != visibleWindowCount else {
+    private func handleWindowVisibilityChange(_ window: NSWindow) {
+        guard isManagedWindow(window) else {
             return
         }
-        visibleWindowCount = nextVisibleWindowCount
+        scheduleDockPolicyUpdate(afterNanoseconds: 100_000_000, allowsAccessoryPolicy: true)
+    }
 
-        let desiredPolicy: NSApplication.ActivationPolicy = visibleWindowCount > 0 ? .regular : .accessory
+    private func scheduleDockPolicyUpdate(afterNanoseconds delay: UInt64, allowsAccessoryPolicy: Bool) {
+        Task { @MainActor [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            } else {
+                await Task.yield()
+            }
+            self?.updateDockPolicy(allowsAccessoryPolicy: allowsAccessoryPolicy)
+        }
+    }
+
+    private func updateDockPolicy(allowsAccessoryPolicy: Bool) {
+        let hasVisibleManagedWindow = !visibleManagedWindows().isEmpty
+        guard hasVisibleManagedWindow || allowsAccessoryPolicy else {
+            return
+        }
+
+        let desiredPolicy: NSApplication.ActivationPolicy = hasVisibleManagedWindow ? .regular : .accessory
         if NSApp.activationPolicy() != desiredPolicy {
             NSApp.setActivationPolicy(desiredPolicy)
         }
     }
-}
 
-@MainActor
-private final class NulConnectWindowObserver: NSObject, NSWindowDelegate {
-    weak var window: NSWindow?
-    weak var coordinator: NulConnectWindowCoordinator?
-    var role: NulConnectWindowRole
-
-    init(window: NSWindow, role: NulConnectWindowRole, coordinator: NulConnectWindowCoordinator) {
-        self.window = window
-        self.role = role
-        self.coordinator = coordinator
-    }
-
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        true
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else {
-            return
+    private func visibleManagedWindows(role: NulConnectWindowRole? = nil) -> [NSWindow] {
+        NSApp.windows.filter { window in
+            guard isManagedWindow(window), window.isVisible, !window.isMiniaturized else {
+                return false
+            }
+            if let role {
+                return window.identifier == role.windowIdentifier
+            }
+            return true
         }
-        coordinator?.unregister(window: window)
+    }
+
+    private func isManagedWindow(_ window: NSWindow) -> Bool {
+        guard let identifier = window.identifier else {
+            return false
+        }
+        return managedWindowIdentifiers.contains(identifier)
     }
 }
 

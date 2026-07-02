@@ -50,6 +50,7 @@ struct NulConnectConnectionState: Codable, Sendable, Equatable {
 struct NulConnectProfile: Codable, Sendable, Equatable {
     var serverHost: String
     var serverPort: UInt16
+    var localProxyPort: UInt16
     var loginDomain: String
     var preferredAuthType: String?
     var userAgent: String
@@ -65,6 +66,7 @@ struct NulConnectProfile: Codable, Sendable, Equatable {
     static let `default` = NulConnectProfile(
         serverHost: "",
         serverPort: 443,
+        localProxyPort: 1080,
         loginDomain: "",
         preferredAuthType: nil,
         userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) aTrustTray/2.4.10.50 Chrome/83.0.4103.94 Electron/9.0.2 Safari/537.36 aTrustTray-Linux-Plat-Ubuntu-x64 SPCClientType",
@@ -78,8 +80,78 @@ struct NulConnectProfile: Codable, Sendable, Equatable {
         platform: "Linux"
     )
 
+    enum CodingKeys: String, CodingKey {
+        case serverHost
+        case serverPort
+        case localProxyPort
+        case loginDomain
+        case preferredAuthType
+        case userAgent
+        case allowInsecureTLS
+        case routeMode
+        case useSystemProxy
+        case connectTimeoutMillis
+        case ioTimeoutMillis
+        case nodeProbeTimeoutMillis
+        case clientType
+        case platform
+    }
+
+    init(
+        serverHost: String,
+        serverPort: UInt16,
+        localProxyPort: UInt16,
+        loginDomain: String,
+        preferredAuthType: String?,
+        userAgent: String,
+        allowInsecureTLS: Bool,
+        routeMode: NulConnectRouteMode,
+        useSystemProxy: Bool,
+        connectTimeoutMillis: UInt64,
+        ioTimeoutMillis: UInt64,
+        nodeProbeTimeoutMillis: UInt64,
+        clientType: String,
+        platform: String
+    ) {
+        self.serverHost = serverHost
+        self.serverPort = serverPort
+        self.localProxyPort = localProxyPort
+        self.loginDomain = loginDomain
+        self.preferredAuthType = preferredAuthType
+        self.userAgent = userAgent
+        self.allowInsecureTLS = allowInsecureTLS
+        self.routeMode = routeMode
+        self.useSystemProxy = useSystemProxy
+        self.connectTimeoutMillis = connectTimeoutMillis
+        self.ioTimeoutMillis = ioTimeoutMillis
+        self.nodeProbeTimeoutMillis = nodeProbeTimeoutMillis
+        self.clientType = clientType
+        self.platform = platform
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.serverHost = try container.decode(String.self, forKey: .serverHost)
+        self.serverPort = try container.decode(UInt16.self, forKey: .serverPort)
+        self.localProxyPort = try container.decodeIfPresent(UInt16.self, forKey: .localProxyPort) ?? Self.default.localProxyPort
+        self.loginDomain = try container.decode(String.self, forKey: .loginDomain)
+        self.preferredAuthType = try container.decodeIfPresent(String.self, forKey: .preferredAuthType)
+        self.userAgent = try container.decode(String.self, forKey: .userAgent)
+        self.allowInsecureTLS = try container.decode(Bool.self, forKey: .allowInsecureTLS)
+        self.routeMode = try container.decode(NulConnectRouteMode.self, forKey: .routeMode)
+        self.useSystemProxy = try container.decode(Bool.self, forKey: .useSystemProxy)
+        self.connectTimeoutMillis = try container.decode(UInt64.self, forKey: .connectTimeoutMillis)
+        self.ioTimeoutMillis = try container.decode(UInt64.self, forKey: .ioTimeoutMillis)
+        self.nodeProbeTimeoutMillis = try container.decode(UInt64.self, forKey: .nodeProbeTimeoutMillis)
+        self.clientType = try container.decode(String.self, forKey: .clientType)
+        self.platform = try container.decode(String.self, forKey: .platform)
+    }
+
     func normalizedForHITAuth() -> NulConnectProfile {
         var copy = self
+        if copy.localProxyPort == 0 {
+            copy.localProxyPort = Self.default.localProxyPort
+        }
         if copy.clientType == "desktop" || copy.clientType.isEmpty {
             copy.clientType = "SDPClient"
         }

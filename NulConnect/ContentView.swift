@@ -88,16 +88,16 @@ struct ContentView: View {
     }
 
     private var connectionDetails: some View {
-        GroupBox {
-            VStack(spacing: 10) {
-                DetailRow(title: "模式", value: model.profile.routeMode.title, symbol: "switch.2")
+            GroupBox {
+                VStack(spacing: 10) {
+                DetailRow(title: "模式", value: model.effectiveRouteMode.title, symbol: "switch.2")
                 DetailRow(title: "本地代理", value: model.proxyEndpointText, symbol: "dot.radiowaves.left.and.right") {
                     copyProxyEndpoint()
                 }
-                DetailRow(title: "系统代理", value: model.effectiveSystemProxyEnabled ? "已启用" : "未启用", symbol: "macwindow")
+                DetailRow(title: "系统代理", value: "未开放", symbol: "macwindow")
                 DetailRow(title: "运行状态", value: proxyStateText, symbol: proxyStateSymbol)
+                }
             }
-        }
         .groupBoxStyle(.automatic)
     }
 
@@ -138,11 +138,11 @@ struct ContentView: View {
     }
 
     private var isPrimaryActionDisabled: Bool {
-        model.profile.routeMode != .proxy || isProxyBusy
+        model.effectiveRouteMode != .proxy || isProxyBusy
     }
 
     private var primaryActionTitle: String {
-        if model.profile.routeMode == .tun {
+        if model.effectiveRouteMode == .tun {
             return "TUN 模式待接入"
         }
         if isProxyRunning {
@@ -152,7 +152,7 @@ struct ContentView: View {
     }
 
     private var primaryActionImage: String {
-        if model.profile.routeMode == .tun {
+        if model.effectiveRouteMode == .tun {
             return "network"
         }
         return isProxyRunning ? "stop.fill" : "power"
@@ -297,13 +297,11 @@ struct NulConnectSettingsView: View {
         Form {
             Section("模式") {
                 Picker("连接模式", selection: Binding(
-                    get: { model.profile.routeMode },
+                    get: { model.effectiveRouteMode },
                     set: { newValue in
                         model.replaceProfile { profile in
-                            profile.routeMode = newValue
-                            if newValue == .tun {
-                                profile.useSystemProxy = false
-                            }
+                            profile.routeMode = newValue == .tun ? .proxy : newValue
+                            profile.useSystemProxy = false
                         }
                     }
                 )) {
@@ -312,16 +310,29 @@ struct NulConnectSettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .disabled(true)
 
                 Toggle("启用系统代理", isOn: Binding(
-                    get: { model.profile.useSystemProxy },
+                    get: { false },
                     set: { newValue in
                         model.replaceProfile { profile in
-                            profile.useSystemProxy = profile.routeMode == .proxy ? newValue : false
+                            profile.useSystemProxy = false
                         }
                     }
                 ))
-                .disabled(model.profile.routeMode == .tun)
+                .disabled(true)
+            }
+
+            Section("本地代理") {
+                PortTextField("监听端口", port: Binding(
+                    get: { model.profile.localProxyPort },
+                    set: { newValue in
+                        model.replaceProfile { $0.localProxyPort = newValue }
+                    }
+                ))
+                .disabled(model.isProxyRunning)
+
+                LabeledContent("代理地址", value: model.proxyEndpointText)
             }
 
             Section("客户端参数") {
@@ -338,11 +349,6 @@ struct NulConnectSettingsView: View {
                         model.replaceProfile { $0.allowInsecureTLS = newValue }
                     }
                 ))
-            }
-
-            Section("运行状态") {
-                LabeledContent("代理地址", value: model.proxyEndpointText)
-                LabeledContent("系统代理", value: model.effectiveSystemProxyEnabled ? "已启用" : "未启用")
             }
         }
         .formStyle(.grouped)
@@ -422,8 +428,10 @@ struct NulConnectMenuBarContent: View {
             Divider()
 
             Button("打开主窗口") {
-                windowCoordinator.activateForPresentation()
-                openWindow(id: "main")
+                if !windowCoordinator.activateForPresentation(role: .main) {
+                    openWindow(id: "main")
+                }
+                windowCoordinator.updateVisibilityAfterPresentation()
             }
 
             Button(model.isProxyRunning ? "停止代理" : "启动代理") {
@@ -453,6 +461,29 @@ struct NulConnectMenuBarContent: View {
         let phase = model.connectionState.phase.title
         let host = model.profile.serverHost.isEmpty ? "未配置服务器" : model.profile.serverHost
         return "\(phase) · \(host)"
+    }
+}
+
+private struct PortTextField: View {
+    let title: String
+    @Binding var port: UInt16
+
+    init(_ title: String, port: Binding<UInt16>) {
+        self.title = title
+        self._port = port
+    }
+
+    var body: some View {
+        TextField(title, text: Binding(
+            get: { String(port) },
+            set: { newValue in
+                let digits = newValue.filter(\.isNumber)
+                guard let parsed = UInt16(digits), parsed > 0 else {
+                    return
+                }
+                port = parsed
+            }
+        ))
     }
 }
 
