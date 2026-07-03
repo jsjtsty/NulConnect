@@ -199,6 +199,14 @@ enum NulConnectProxyRuntimeState: Equatable, Sendable {
     case failed(message: String)
 }
 
+enum NulConnectSystemProxyRuntimeState: Equatable, Sendable {
+    case disabled
+    case enabling
+    case enabled(endpoint: NulConnectProxyEndpoint)
+    case disabling
+    case failed(message: String)
+}
+
 enum NulConnectTunnelRuntimeState: Equatable, Sendable {
     case stopped
     case starting

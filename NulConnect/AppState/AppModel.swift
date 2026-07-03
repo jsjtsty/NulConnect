@@ -12,6 +12,7 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var connectionState: NulConnectConnectionState
     @Published private(set) var proxyState: NulConnectProxyRuntimeState = .stopped
+    @Published private(set) var systemProxyState: NulConnectSystemProxyRuntimeState = .disabled
     @Published private(set) var tunnelState: NulConnectTunnelRuntimeState = .stopped
     @Published private(set) var loginState: NulConnectLoginState = .idle
     @Published private(set) var availableLoginMethods: [ATRAuthMethod] = []
@@ -25,6 +26,7 @@ final class AppModel: ObservableObject {
     private let profileStore: ProfileStore
     private let sessionVault: SessionVault
     private let resourceStore: ResourceSnapshotStore
+    private let systemProxyManager: NulConnectSystemProxyManager?
 #if NULCONNECT_ENABLE_TUN
     private let tunnelManager = NulConnectTunnelManager()
 #endif
@@ -57,10 +59,12 @@ final class AppModel: ObservableObject {
         self.profile = profile
         self.connectionState = connectionState
         self.proxyState = .stopped
+        self.systemProxyState = .disabled
         self.sessionSummary = sessionSummary
         self.resourceSnapshot = resourceSnapshot
         self.bannerMessage = bannerMessage
         self.storedSessionMaterial = storedSessionMaterial
+        self.systemProxyManager = try? NulConnectSystemProxyManager()
     }
 
     static func bootstrap() -> AppModel {
@@ -111,7 +115,10 @@ final class AppModel: ObservableObject {
     }
 
     var effectiveSystemProxyEnabled: Bool {
-        runtimeProfile.useSystemProxy
+        if case .enabled = systemProxyState {
+            return true
+        }
+        return runtimeProfile.useSystemProxy
     }
 
     var effectiveRouteMode: NulConnectRouteMode {
@@ -127,7 +134,7 @@ final class AppModel: ObservableObject {
     }
 
     var tunnelUnavailableMessage: String {
-        "当前构建不支持 TUN 模式。需要使用具备 Network Extension / App Group 权限的 Apple Developer 账号编译支持版本。"
+        "暂不支持该功能，将在后续版本实现。"
     }
 
     var isProxyRunning: Bool {
@@ -143,6 +150,41 @@ final class AppModel: ObservableObject {
             return true
         default:
             return false
+        }
+    }
+
+    var isSystemProxyEnabled: Bool {
+        if case .enabled = systemProxyState {
+            return true
+        }
+        return false
+    }
+
+    var isSystemProxyBusy: Bool {
+        switch systemProxyState {
+        case .enabling, .disabling:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var canChangeSystemProxyPreference: Bool {
+        effectiveRouteMode == .proxy && !isProxyBusy && !isTunnelRunning && !isTunnelBusy
+    }
+
+    var systemProxyStateText: String {
+        switch systemProxyState {
+        case .disabled:
+            return profile.useSystemProxy ? "待启用" : "关闭"
+        case .enabling:
+            return "开启中"
+        case .enabled(let endpoint):
+            return "已开启 · \(endpoint.displayString)"
+        case .disabling:
+            return "关闭中"
+        case .failed(let message):
+            return "失败 · \(message)"
         }
     }
 
@@ -313,6 +355,27 @@ final class AppModel: ObservableObject {
         profile = copy
     }
 
+    func setSystemProxyEnabled(_ enabled: Bool) {
+        replaceProfile { profile in
+            profile.useSystemProxy = enabled
+        }
+
+        guard case .running(let endpoint) = proxyState else {
+            bannerMessage = enabled ? "系统代理将在代理启动后自动开启" : "系统代理偏好已关闭"
+            return
+        }
+
+        if enabled {
+            Task {
+                await enableSystemProxy(endpoint: endpoint)
+            }
+        } else {
+            Task {
+                await disableSystemProxy()
+            }
+        }
+    }
+
     func currentSessionMaterial() -> ATRSessionMaterial? {
         storedSessionMaterial
     }
@@ -374,22 +437,30 @@ final class AppModel: ObservableObject {
         }
 
         print("[NulConnect][Login] resume stored session start user='\(storedSessionMaterial.username)' deviceID='\(storedSessionMaterial.deviceID)'")
-        let refreshedMaterial = try await authEngine.resumeSession(storedSessionMaterial, configuration: authConfiguration)
-        try sessionVault.save(refreshedMaterial)
-        self.storedSessionMaterial = refreshedMaterial
-        self.sessionSummary = NulConnectSessionSummary(material: refreshedMaterial)
-        print("[NulConnect][Login] resume stored session success user='\(refreshedMaterial.username)' sidBytes=\(refreshedMaterial.sid.utf8.count) cookies=\(refreshedMaterial.cookies.count)")
+        do {
+            let refreshedMaterial = try await authEngine.resumeSession(storedSessionMaterial, configuration: authConfiguration)
+            try sessionVault.save(refreshedMaterial)
+            self.storedSessionMaterial = refreshedMaterial
+            self.sessionSummary = NulConnectSessionSummary(material: refreshedMaterial)
+            print("[NulConnect][Login] resume stored session success user='\(refreshedMaterial.username)' sidBytes=\(refreshedMaterial.sid.utf8.count) cookies=\(refreshedMaterial.cookies.count)")
 
-        let resourceBytes = try await authEngine.fetchClientResource()
-        print("[NulConnect][Login] refreshed client resource before proxy bytes=\(resourceBytes.count) preview='\(Self.resourcePreview(resourceBytes))'")
-        let client = try ATRClient(configuration: clientConfiguration)
-        try client.setSession(refreshedMaterial)
-        try client.setResource(resourceBytes, serviceHost: profile.serverHost)
-        let snapshot = try client.resourceSnapshot()
-        try resourceStore.save(snapshot)
-        self.resourceSnapshot = snapshot
-        print("[NulConnect][Login] refreshed resource before proxy: bytes=\(snapshot.resourceBytes.count) ip=\(snapshot.ipResources.count) domain=\(snapshot.domainResources.count) dns=\(snapshot.dnsResources.count) nodes=\(snapshot.nodeGroups.count)")
-        return (refreshedMaterial, snapshot)
+            let resourceBytes = try await authEngine.fetchClientResource()
+            print("[NulConnect][Login] refreshed client resource before proxy bytes=\(resourceBytes.count) preview='\(Self.resourcePreview(resourceBytes))'")
+            let client = try ATRClient(configuration: clientConfiguration)
+            try client.setSession(refreshedMaterial)
+            try client.setResource(resourceBytes, serviceHost: profile.serverHost)
+            let snapshot = try client.resourceSnapshot()
+            try resourceStore.save(snapshot)
+            self.resourceSnapshot = snapshot
+            print("[NulConnect][Login] refreshed resource before proxy: bytes=\(snapshot.resourceBytes.count) ip=\(snapshot.ipResources.count) domain=\(snapshot.domainResources.count) dns=\(snapshot.dnsResources.count) nodes=\(snapshot.nodeGroups.count)")
+            return (refreshedMaterial, snapshot)
+        } catch {
+            if Self.isStoredSessionInvalidError(error) {
+                await invalidateStoredSession(message: "登录会话已失效，请重新登录", error: error)
+                throw NulConnectProxyServiceError.sessionExpired("登录会话已失效，请重新登录")
+            }
+            throw error
+        }
     }
 
     private nonisolated static func resourcePreview(_ data: Data) -> String {
@@ -583,6 +654,51 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func enableSystemProxy(endpoint: NulConnectProxyEndpoint) async {
+        guard let systemProxyManager else {
+            systemProxyState = .failed(message: "系统代理管理器不可用")
+            bannerMessage = "系统代理管理器不可用"
+            return
+        }
+
+        systemProxyState = .enabling
+        do {
+            let serviceCount = try await systemProxyManager.enable(endpoint: endpoint, serverHost: runtimeProfile.serverHost)
+            systemProxyState = .enabled(endpoint: endpoint)
+            bannerMessage = "系统代理已开启，已配置 \(serviceCount) 个网络服务"
+            lastPersistenceErrorMessage = nil
+        } catch {
+            systemProxyState = .failed(message: error.localizedDescription)
+            bannerMessage = "开启系统代理失败: \(error.localizedDescription)"
+            lastPersistenceErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func disableSystemProxy() async {
+        guard let systemProxyManager else {
+            systemProxyState = .disabled
+            return
+        }
+
+        switch systemProxyState {
+        case .enabled, .enabling, .failed:
+            systemProxyState = .disabling
+        case .disabled, .disabling:
+            return
+        }
+
+        do {
+            try await systemProxyManager.restore()
+            systemProxyState = .disabled
+            bannerMessage = "系统代理已关闭"
+            lastPersistenceErrorMessage = nil
+        } catch {
+            systemProxyState = .failed(message: error.localizedDescription)
+            bannerMessage = "关闭系统代理失败: \(error.localizedDescription)"
+            lastPersistenceErrorMessage = error.localizedDescription
+        }
+    }
+
     func startProxyMode() {
         guard effectiveRouteMode == .proxy else {
             bannerMessage = "当前不是代理模式"
@@ -637,6 +753,10 @@ final class AppModel: ObservableObject {
                     self.lastPersistenceErrorMessage = nil
                 }
 
+                if profile.useSystemProxy {
+                    await self.enableSystemProxy(endpoint: endpoint)
+                }
+
                 await service.probeSOCKS5()
             } catch {
                 await MainActor.run {
@@ -672,9 +792,19 @@ final class AppModel: ObservableObject {
             updatedAt: .now
         )
 
+        proxyTask?.cancel()
+        proxyTask = Task { [weak self] in
+            guard let self else { return }
+            await self.disableSystemProxy()
+            await MainActor.run {
+                self.finishStoppingProxyMode()
+            }
+        }
+    }
+
+    private func finishStoppingProxyMode() {
         proxyService?.stop()
         proxyService = nil
-        proxyTask?.cancel()
         proxyTask = nil
         proxyState = .stopped
         connectionState = NulConnectConnectionState(
@@ -860,6 +990,40 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func invalidateStoredSession(message: String, error: Error) async {
+        await authEngine.reset()
+        try? sessionVault.clear()
+        try? resourceStore.delete()
+        storedSessionMaterial = nil
+        sessionSummary = nil
+        resourceSnapshot = nil
+        loginState = .failed(message: message)
+        connectionState = NulConnectConnectionState(
+            phase: .failed,
+            message: message,
+            updatedAt: .now
+        )
+        bannerMessage = message
+        lastPersistenceErrorMessage = error.localizedDescription
+    }
+
+    private nonisolated static func isStoredSessionInvalidError(_ error: Error) -> Bool {
+        let normalized = error.localizedDescription.lowercased()
+        if normalized.contains("stored session is not logged in") || normalized.contains("not logged in") {
+            return true
+        }
+
+        switch error {
+        case LibreATrustError.unauthorized(let message),
+             LibreATrustError.invalidState(let message),
+             LibreATrustError.networkFailed(let message):
+            let text = message.lowercased()
+            return text.contains("stored session is not logged in") || text.contains("not logged in") || text.contains("invalid sid")
+        default:
+            return false
+        }
+    }
+
     private func failProxySessionInvalidated(_ error: Error) {
         try? sessionVault.clear()
         try? resourceStore.delete()
@@ -903,7 +1067,6 @@ final class AppModel: ObservableObject {
 
     private var runtimeProfile: NulConnectProfile {
         var profile = self.profile.normalizedForHITAuth()
-        profile.useSystemProxy = false
 #if !NULCONNECT_ENABLE_TUN
         if profile.routeMode == .tun {
             profile.routeMode = .proxy

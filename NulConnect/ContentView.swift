@@ -94,7 +94,7 @@ struct ContentView: View {
                 DetailRow(title: "本地代理", value: model.proxyEndpointText, symbol: "dot.radiowaves.left.and.right") {
                     copyProxyEndpoint()
                 }
-                DetailRow(title: "系统代理", value: "未开放", symbol: "macwindow")
+                DetailRow(title: "系统代理", value: model.systemProxyStateText, symbol: "macwindow")
                 DetailRow(title: "运行状态", value: runtimeStateText, symbol: runtimeStateSymbol)
                 }
             }
@@ -395,15 +395,28 @@ struct NulConnectSettingsView: View {
                     }
                 }
 
-                Toggle("启用系统代理", isOn: Binding(
-                    get: { false },
+                Toggle(isOn: Binding(
+                    get: { model.profile.useSystemProxy },
                     set: { newValue in
-                        model.replaceProfile { profile in
-                            profile.useSystemProxy = false
-                        }
+                        model.setSystemProxyEnabled(newValue)
                     }
-                ))
+                )) {
+                    Text("启用系统代理")
+                }
                 .disabled(true)
+                // .disabled(!model.canChangeSystemProxyPreference || model.isSystemProxyBusy)
+                .help("修改系统代理需要管理员权限")
+                
+                HStack(alignment: .center, spacing: 8) {
+                    Image(systemName: "lock.shield")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+
+                    Text(model.tunnelUnavailableMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Section("本地代理") {
@@ -415,7 +428,17 @@ struct NulConnectSettingsView: View {
                 ))
                 .disabled(model.isProxyRunning)
 
-                LabeledContent("代理地址", value: model.proxyEndpointText)
+                HStack(spacing: 12) {
+                    Text("代理地址")
+
+                    Spacer(minLength: 12)
+
+                    Text(model.proxyEndpointText)
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                }
+                // .font(.subheadline)
+                .help("系统代理会指向这个本地代理地址，启用时需要管理员权限")
             }
 
             Section("客户端参数") {
@@ -555,7 +578,7 @@ struct NulConnectMenuBarContent: View {
                     }
                 }
             }
-            .disabled(model.isProxyBusy || model.isTunnelBusy)
+            .disabled(model.isProxyBusy || model.isTunnelBusy || model.isSystemProxyBusy)
 
             SettingsLink {
                 Text("打开设置")

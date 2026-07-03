@@ -10,14 +10,13 @@
 		27B8231F2FF5855A00E51188 /* libreatrust.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		27B823202FF5855A00E51188 /* libreatrust.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		27B823222FF5855A00E51188 /* libreatrust.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		27B8240E2FF7000000E51188 /* NulConnectTunnelExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 27B824022FF7000000E51188 /* NulConnectTunnelExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		27B8240F2FF7000000E51188 /* libreatrust.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		27B824102FF7000000E51188 /* libreatrust.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 27B8231E2FF5855A00E51188 /* libreatrust.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		27B824122FF7000000E51188 /* LibreATrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824042FF7000000E51188 /* LibreATrust.swift */; };
-		27B824132FF7000000E51188 /* AppTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824052FF7000000E51188 /* AppTypes.swift */; };
-		27B824142FF7000000E51188 /* NulConnectJSON.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824062FF7000000E51188 /* NulConnectJSON.swift */; };
-		27B824152FF7000000E51188 /* NulConnectDNSResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824072FF7000000E51188 /* NulConnectDNSResolver.swift */; };
-		27B824162FF7000000E51188 /* NulConnectTunnelLaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824082FF7000000E51188 /* NulConnectTunnelLaunchConfiguration.swift */; };
+		27B824122FF7000000E51188 /* NulConnect/LibreATrust/LibreATrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824042FF7000000E51188 /* NulConnect/LibreATrust/LibreATrust.swift */; };
+		27B824132FF7000000E51188 /* NulConnect/AppState/AppTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824052FF7000000E51188 /* NulConnect/AppState/AppTypes.swift */; };
+		27B824142FF7000000E51188 /* NulConnect/Persistence/NulConnectJSON.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824062FF7000000E51188 /* NulConnect/Persistence/NulConnectJSON.swift */; };
+		27B824152FF7000000E51188 /* NulConnect/Tunnel/NulConnectDNSResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824072FF7000000E51188 /* NulConnect/Tunnel/NulConnectDNSResolver.swift */; };
+		27B824162FF7000000E51188 /* NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824082FF7000000E51188 /* NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -34,13 +33,6 @@
 			proxyType = 1;
 			remoteGlobalIDString = 27B822F02FF5855900E51188;
 			remoteInfo = NulConnect;
-		};
-		27B824182FF7000000E51188 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 27B822E92FF5855900E51188 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 27B824012FF7000000E51188;
-			remoteInfo = NulConnectTunnelExtension;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -65,17 +57,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		27B824092FF7000000E51188 /* Embed App Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				27B8240E2FF7000000E51188 /* NulConnectTunnelExtension.appex in Embed App Extensions */,
-			);
-			name = "Embed App Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		27B8240D2FF7000000E51188 /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -94,12 +75,12 @@
 		27B8230A2FF5855A00E51188 /* NulConnectUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NulConnectUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		27B8231E2FF5855A00E51188 /* libreatrust.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libreatrust.dylib; path = Vendor/libreatrust/dynamic/libreatrust.dylib; sourceTree = SOURCE_ROOT; };
 		27B824022FF7000000E51188 /* NulConnectTunnelExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NulConnectTunnelExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		27B824032FF7000000E51188 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnectTunnelExtension/PacketTunnelProvider.swift; sourceTree = SOURCE_ROOT; };
-		27B824042FF7000000E51188 /* LibreATrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/LibreATrust/LibreATrust.swift; sourceTree = SOURCE_ROOT; };
-		27B824052FF7000000E51188 /* AppTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/AppState/AppTypes.swift; sourceTree = SOURCE_ROOT; };
-		27B824062FF7000000E51188 /* NulConnectJSON.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/Persistence/NulConnectJSON.swift; sourceTree = SOURCE_ROOT; };
-		27B824072FF7000000E51188 /* NulConnectDNSResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/Tunnel/NulConnectDNSResolver.swift; sourceTree = SOURCE_ROOT; };
-		27B824082FF7000000E51188 /* NulConnectTunnelLaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift; sourceTree = SOURCE_ROOT; };
+		27B824032FF7000000E51188 /* NulConnectTunnelExtension/PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnectTunnelExtension/PacketTunnelProvider.swift; sourceTree = SOURCE_ROOT; };
+		27B824042FF7000000E51188 /* NulConnect/LibreATrust/LibreATrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/LibreATrust/LibreATrust.swift; sourceTree = SOURCE_ROOT; };
+		27B824052FF7000000E51188 /* NulConnect/AppState/AppTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/AppState/AppTypes.swift; sourceTree = SOURCE_ROOT; };
+		27B824062FF7000000E51188 /* NulConnect/Persistence/NulConnectJSON.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/Persistence/NulConnectJSON.swift; sourceTree = SOURCE_ROOT; };
+		27B824072FF7000000E51188 /* NulConnect/Tunnel/NulConnectDNSResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/Tunnel/NulConnectDNSResolver.swift; sourceTree = SOURCE_ROOT; };
+		27B824082FF7000000E51188 /* NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -186,12 +167,12 @@
 			isa = PBXGroup;
 			children = (
 				27B8231E2FF5855A00E51188 /* libreatrust.dylib */,
-				27B824032FF7000000E51188 /* PacketTunnelProvider.swift */,
-				27B824042FF7000000E51188 /* LibreATrust.swift */,
-				27B824052FF7000000E51188 /* AppTypes.swift */,
-				27B824062FF7000000E51188 /* NulConnectJSON.swift */,
-				27B824072FF7000000E51188 /* NulConnectDNSResolver.swift */,
-				27B824082FF7000000E51188 /* NulConnectTunnelLaunchConfiguration.swift */,
+				27B824032FF7000000E51188 /* NulConnectTunnelExtension/PacketTunnelProvider.swift */,
+				27B824042FF7000000E51188 /* NulConnect/LibreATrust/LibreATrust.swift */,
+				27B824052FF7000000E51188 /* NulConnect/AppState/AppTypes.swift */,
+				27B824062FF7000000E51188 /* NulConnect/Persistence/NulConnectJSON.swift */,
+				27B824072FF7000000E51188 /* NulConnect/Tunnel/NulConnectDNSResolver.swift */,
+				27B824082FF7000000E51188 /* NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -397,11 +378,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				27B824122FF7000000E51188 /* LibreATrust.swift in Sources */,
-				27B824132FF7000000E51188 /* AppTypes.swift in Sources */,
-				27B824142FF7000000E51188 /* NulConnectJSON.swift in Sources */,
-				27B824152FF7000000E51188 /* NulConnectDNSResolver.swift in Sources */,
-				27B824162FF7000000E51188 /* NulConnectTunnelLaunchConfiguration.swift in Sources */,
+				27B824122FF7000000E51188 /* NulConnect/LibreATrust/LibreATrust.swift in Sources */,
+				27B824132FF7000000E51188 /* NulConnect/AppState/AppTypes.swift in Sources */,
+				27B824142FF7000000E51188 /* NulConnect/Persistence/NulConnectJSON.swift in Sources */,
+				27B824152FF7000000E51188 /* NulConnect/Tunnel/NulConnectDNSResolver.swift in Sources */,
+				27B824162FF7000000E51188 /* NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -417,11 +398,6 @@
 			isa = PBXTargetDependency;
 			target = 27B822F02FF5855900E51188 /* NulConnect */;
 			targetProxy = 27B8230B2FF5855A00E51188 /* PBXContainerItemProxy */;
-		};
-		27B824192FF7000000E51188 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 27B824012FF7000000E51188 /* NulConnectTunnelExtension */;
-			targetProxy = 27B824182FF7000000E51188 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -583,7 +559,7 @@
 				CODE_SIGN_ENTITLEMENTS = NulConnect/NulConnect.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 3F5CH9XJ2Z;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -595,7 +571,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.1;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nulstudio.NulConnect;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -617,7 +593,7 @@
 				CODE_SIGN_ENTITLEMENTS = NulConnect/NulConnect.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 3F5CH9XJ2Z;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -629,7 +605,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.1;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nulstudio.NulConnect;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

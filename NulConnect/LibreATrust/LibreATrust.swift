@@ -95,6 +95,95 @@ struct ATRAuthConfiguration: Sendable {
     var allowInsecureTLS: Bool
 }
 
+enum ATRTunDNSStrategy: Sendable {
+    case virtual
+    case overTCP
+    case direct
+}
+
+enum ATRTunLogLevel: Sendable {
+    case off
+    case error
+    case warn
+    case info
+    case debug
+    case trace
+}
+
+enum ATRTunProxyStatus: Sendable {
+    case running
+    case stopped
+}
+
+enum ATRProxyServiceStatus: Sendable {
+    case running
+    case stopped
+}
+
+struct ATRProxyServiceConfiguration: Sendable {
+    var listenHost: String
+    var listenPort: UInt16
+    var connectTimeout: UInt64
+    var idleTimeout: UInt64
+    var enableHTTP: Bool
+    var enableSOCKS5: Bool
+}
+
+struct ATRProxyServiceEndpoint: Sendable {
+    var host: String
+    var port: UInt16
+}
+
+struct ATRProxyServiceStats: Sendable {
+    var activeConnections: UInt64
+    var totalConnections: UInt64
+    var lastError: String?
+    var lastEvent: ATRProxyServiceEvent?
+}
+
+enum ATRProxyServiceEvent: Sendable {
+    case error(String)
+    case sessionInvalidated(String)
+}
+
+struct ATRTunProxyConfiguration: Sendable {
+    var proxyURL: String
+    var tunName: String?
+    var dnsStrategy: ATRTunDNSStrategy
+    var dnsAddress: String
+    var virtualDNSPool: String
+    var bypassCIDRs: [String]
+    var mtu: UInt16
+    var tcpTimeout: UInt64
+    var udpTimeout: UInt64
+    var maxSessions: Int
+    var setupRoutes: Bool
+    var ipv6Enabled: Bool
+    var packetInformation: Bool
+    var exitOnFatalError: Bool
+    var verbosity: ATRTunLogLevel
+
+    static func localSOCKS5(port: UInt16, setupRoutes: Bool = false) -> Self {
+        Self(
+            proxyURL: "socks5://127.0.0.1:\(port)",
+            tunName: nil,
+            dnsStrategy: .virtual,
+            dnsAddress: "8.8.8.8",
+            virtualDNSPool: "198.18.0.0/15",
+            bypassCIDRs: [],
+            mtu: 1500,
+            tcpTimeout: 600,
+            udpTimeout: 30,
+            maxSessions: 200,
+            setupRoutes: setupRoutes,
+            ipv6Enabled: false,
+            packetInformation: true,
+            exitOnFatalError: false,
+            verbosity: .warn
+        )
+    }
+}
+
 struct ATRIPResource: Sendable, Codable {
     var ipMin: String
     var ipMax: String
@@ -367,6 +456,20 @@ nonisolated final class ATRClient {
         }
     }
 
+    func startProxyService(configuration: ATRProxyServiceConfiguration) throws -> ATRProxyService {
+        try withRaw { raw in
+            try withProxyServiceConfiguration(configuration) { config in
+                var config = config
+                var service: OpaquePointer?
+                try check(atr_client_start_proxy_service(raw, &config, &service))
+                guard let service else {
+                    throw LibreATrustError.internalError("proxy service is nil")
+                }
+                return ATRProxyService(raw: service)
+            }
+        }
+    }
+
     private func withRaw<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
         guard let raw else {
             throw LibreATrustError.invalidState("client is released")
@@ -534,6 +637,165 @@ nonisolated final class ATRL3Tunnel {
     }
 }
 
+nonisolated final class ATRProxyService {
+    private var raw: OpaquePointer?
+
+    init(raw: OpaquePointer) {
+        self.raw = raw
+    }
+
+    deinit {
+        if let raw {
+            atr_proxy_service_free(raw)
+        }
+    }
+
+    func stop() throws {
+        try withRaw { raw in
+            try check(atr_proxy_service_stop(raw))
+        }
+    }
+
+    func status() throws -> ATRProxyServiceStatus {
+        try withRaw { raw in
+            var status = ATR_PROXY_SERVICE_STOPPED
+            try check(atr_proxy_service_status(raw, &status))
+            switch status {
+            case ATR_PROXY_SERVICE_RUNNING:
+                return .running
+            default:
+                return .stopped
+            }
+        }
+    }
+
+    func endpoint() throws -> ATRProxyServiceEndpoint {
+        try withRaw { raw in
+            var endpoint = atr_proxy_service_endpoint_t(host: nil, port: 0)
+            try check(atr_proxy_service_get_endpoint(raw, &endpoint))
+            defer { atr_proxy_service_endpoint_free(&endpoint) }
+            guard let host = endpoint.host else {
+                throw LibreATrustError.internalError("proxy service endpoint host is nil")
+            }
+            return ATRProxyServiceEndpoint(host: String(cString: host), port: endpoint.port)
+        }
+    }
+
+    func stats() throws -> ATRProxyServiceStats {
+        try withRaw { raw in
+            var stats = atr_proxy_service_stats_t(
+                active_connections: 0,
+                total_connections: 0,
+                last_error: nil,
+                last_event_kind: ATR_PROXY_SERVICE_EVENT_NONE,
+                last_event_message: nil
+            )
+            try check(atr_proxy_service_get_stats(raw, &stats))
+            defer { atr_proxy_service_stats_free(&stats) }
+            return ATRProxyServiceStats(
+                activeConnections: stats.active_connections,
+                totalConnections: stats.total_connections,
+                lastError: optionalCStringString(stats.last_error),
+                lastEvent: decodeProxyServiceEvent(
+                    kind: stats.last_event_kind,
+                    message: optionalCStringString(stats.last_event_message)
+                )
+            )
+        }
+    }
+
+    func takeEvent() throws -> ATRProxyServiceEvent? {
+        try withRaw { raw in
+            var kind = ATR_PROXY_SERVICE_EVENT_NONE
+            var message: UnsafeMutablePointer<CChar>?
+            try check(atr_proxy_service_take_event(raw, &kind, &message))
+            defer { if let message { atr_string_free(message) } }
+            return decodeProxyServiceEvent(kind: kind, message: optionalCStringString(message))
+        }
+    }
+
+    private func withRaw<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
+        guard let raw else {
+            throw LibreATrustError.invalidState("proxy service is released")
+        }
+        return try body(raw)
+    }
+}
+
+private nonisolated func decodeProxyServiceEvent(
+    kind: atr_proxy_service_event_kind_t,
+    message: String?
+) -> ATRProxyServiceEvent? {
+    switch kind {
+    case ATR_PROXY_SERVICE_EVENT_SESSION_INVALIDATED:
+        return .sessionInvalidated(message ?? "proxy session invalidated")
+    case ATR_PROXY_SERVICE_EVENT_ERROR:
+        return .error(message ?? "proxy service error")
+    default:
+        return nil
+    }
+}
+
+nonisolated final class ATRTunProxyEngine {
+    private var raw: OpaquePointer?
+
+    init(configuration: ATRTunProxyConfiguration) throws {
+        var engine: OpaquePointer?
+        try withTunProxyConfiguration(configuration) { config in
+            var config = config
+            try check(atr_tun_proxy_engine_start(&config, &engine))
+        }
+        guard let engine else {
+            throw LibreATrustError.internalError("tun proxy engine is nil")
+        }
+        self.raw = engine
+    }
+
+    deinit {
+        if let raw {
+            atr_tun_proxy_engine_free(raw)
+        }
+    }
+
+    func stop() throws {
+        try withRaw { raw in
+            try check(atr_tun_proxy_engine_stop(raw))
+        }
+    }
+
+    func status() throws -> ATRTunProxyStatus {
+        try withRaw { raw in
+            var status = ATR_TUN_PROXY_STOPPED
+            try check(atr_tun_proxy_engine_status(raw, &status))
+            switch status {
+            case ATR_TUN_PROXY_RUNNING:
+                return .running
+            default:
+                return .stopped
+            }
+        }
+    }
+
+    func takeResult() throws -> Int? {
+        try withRaw { raw in
+            var sessions = 0
+            let code = atr_tun_proxy_engine_take_result(raw, &sessions)
+            if code == 6 {
+                return nil
+            }
+            try check(code)
+            return sessions
+        }
+    }
+
+    private func withRaw<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
+        guard let raw else {
+            throw LibreATrustError.invalidState("tun proxy engine is released")
+        }
+        return try body(raw)
+    }
+}
+
 // MARK: - C Helpers
 
 private nonisolated final class CStringOwner {
@@ -564,6 +826,23 @@ private nonisolated struct CookieCInputBuffer {
             name: name.pointer,
             value: value.pointer
         )
+    }
+}
+
+private nonisolated final class CStringArrayOwner {
+    private let strings: [CStringOwner]
+    private var pointers: [UnsafePointer<CChar>?]
+
+    init(_ values: [String]) throws {
+        self.strings = try values.map { try CStringOwner($0) }
+        self.pointers = strings.map { UnsafePointer($0.pointer) }
+    }
+
+    func withInput<T>(_ body: (atr_string_list_input_t) throws -> T) throws -> T {
+        try pointers.withUnsafeMutableBufferPointer { buffer in
+            let input = atr_string_list_input_t(items: buffer.baseAddress, len: buffer.count)
+            return try body(input)
+        }
     }
 }
 
@@ -624,6 +903,71 @@ private nonisolated func withClientConfiguration<T>(_ configuration: ATRClientCo
             )
             return try body(config)
         }
+    }
+}
+
+private nonisolated func withProxyServiceConfiguration<T>(_ configuration: ATRProxyServiceConfiguration, _ body: (atr_proxy_service_config_t) throws -> T) throws -> T {
+    try withCStringValue(configuration.listenHost) { listenHost in
+        let config = atr_proxy_service_config_t(
+            listen_host: listenHost,
+            listen_port: configuration.listenPort,
+            connect_timeout_ms: configuration.connectTimeout,
+            idle_timeout_ms: configuration.idleTimeout,
+            enable_http: configuration.enableHTTP,
+            enable_socks5: configuration.enableSOCKS5
+        )
+        return try body(config)
+    }
+}
+
+private nonisolated func withTunProxyConfiguration<T>(_ configuration: ATRTunProxyConfiguration, _ body: (atr_tun_proxy_config_t) throws -> T) throws -> T {
+    try withCStringValue(configuration.proxyURL) { proxyURL in
+        try withOptionalCStringValue(configuration.tunName) { tunName in
+            try withCStringValue(configuration.dnsAddress) { dnsAddress in
+                try withCStringValue(configuration.virtualDNSPool) { virtualDNSPool in
+                    let bypass = try CStringArrayOwner(configuration.bypassCIDRs)
+                    return try bypass.withInput { bypassInput in
+                        let config = atr_tun_proxy_config_t(
+                            proxy_url: proxyURL,
+                            tun_name: tunName,
+                            dns_strategy: cTunDNSStrategy(configuration.dnsStrategy),
+                            dns_addr: dnsAddress,
+                            virtual_dns_pool: virtualDNSPool,
+                            bypass_cidrs: bypassInput,
+                            mtu: configuration.mtu,
+                            tcp_timeout_secs: configuration.tcpTimeout,
+                            udp_timeout_secs: configuration.udpTimeout,
+                            max_sessions: configuration.maxSessions,
+                            setup_routes: configuration.setupRoutes,
+                            ipv6_enabled: configuration.ipv6Enabled,
+                            packet_information: configuration.packetInformation,
+                            exit_on_fatal_error: configuration.exitOnFatalError,
+                            verbosity: cTunLogLevel(configuration.verbosity)
+                        )
+                        return try body(config)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private nonisolated func cTunDNSStrategy(_ strategy: ATRTunDNSStrategy) -> atr_tun_dns_strategy_t {
+    switch strategy {
+    case .virtual: return ATR_TUN_DNS_VIRTUAL
+    case .overTCP: return ATR_TUN_DNS_OVER_TCP
+    case .direct: return ATR_TUN_DNS_DIRECT
+    }
+}
+
+private nonisolated func cTunLogLevel(_ level: ATRTunLogLevel) -> atr_tun_log_level_t {
+    switch level {
+    case .off: return ATR_TUN_LOG_OFF
+    case .error: return ATR_TUN_LOG_ERROR
+    case .warn: return ATR_TUN_LOG_WARN
+    case .info: return ATR_TUN_LOG_INFO
+    case .debug: return ATR_TUN_LOG_DEBUG
+    case .trace: return ATR_TUN_LOG_TRACE
     }
 }
 

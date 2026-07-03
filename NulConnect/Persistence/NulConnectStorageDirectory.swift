@@ -1,6 +1,6 @@
 import Foundation
 
-enum NulConnectStorageDirectory {
+nonisolated enum NulConnectStorageDirectory {
     static func rootDirectory(override: URL? = nil) throws -> URL {
         let directory: URL
         if let override {
