@@ -17,6 +17,7 @@
 		27B824142FF7000000E51188 /* NulConnect/Persistence/NulConnectJSON.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824062FF7000000E51188 /* NulConnect/Persistence/NulConnectJSON.swift */; };
 		27B824152FF7000000E51188 /* NulConnect/Tunnel/NulConnectDNSResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824072FF7000000E51188 /* NulConnect/Tunnel/NulConnectDNSResolver.swift */; };
 		27B824162FF7000000E51188 /* NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B824082FF7000000E51188 /* NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift */; };
+		27B824202FF8000000E51188 /* nulconnect-tun-helper in Resources */ = {isa = PBXBuildFile; fileRef = 27B8241F2FF8000000E51188 /* nulconnect-tun-helper */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -81,6 +82,7 @@
 		27B824062FF7000000E51188 /* NulConnect/Persistence/NulConnectJSON.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/Persistence/NulConnectJSON.swift; sourceTree = SOURCE_ROOT; };
 		27B824072FF7000000E51188 /* NulConnect/Tunnel/NulConnectDNSResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/Tunnel/NulConnectDNSResolver.swift; sourceTree = SOURCE_ROOT; };
 		27B824082FF7000000E51188 /* NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift; sourceTree = SOURCE_ROOT; };
+		27B8241F2FF8000000E51188 /* nulconnect-tun-helper */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = "nulconnect-tun-helper"; path = "Vendor/libreatrust/dynamic/nulconnect-tun-helper"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -173,6 +175,7 @@
 				27B824062FF7000000E51188 /* NulConnect/Persistence/NulConnectJSON.swift */,
 				27B824072FF7000000E51188 /* NulConnect/Tunnel/NulConnectDNSResolver.swift */,
 				27B824082FF7000000E51188 /* NulConnect/Tunnel/NulConnectTunnelLaunchConfiguration.swift */,
+				27B8241F2FF8000000E51188 /* nulconnect-tun-helper */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -326,6 +329,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				27B824202FF8000000E51188 /* nulconnect-tun-helper in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

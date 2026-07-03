@@ -92,7 +92,7 @@ nonisolated final class NulConnectSystemProxyManager: @unchecked Sendable {
         let commands = currentSnapshot.services.flatMap { service in
             enableCommands(for: service.name, endpoint: endpoint, exceptions: exceptions)
         }
-        try runPrivilegedCommands(commands)
+        try runPrivilegedCommands(commands, name: "system-proxy-enable")
         return currentSnapshot.services.count
     }
 
@@ -115,7 +115,7 @@ nonisolated final class NulConnectSystemProxyManager: @unchecked Sendable {
             .flatMap { restoreCommands(for: $0) }
 
         if !commands.isEmpty {
-            try runPrivilegedCommands(commands)
+            try runPrivilegedCommands(commands, name: "system-proxy-restore")
         }
         try FileManager.default.removeItem(at: snapshotURL)
     }
@@ -364,64 +364,24 @@ nonisolated final class NulConnectSystemProxyManager: @unchecked Sendable {
         return output
     }
 
-    private nonisolated static func runPrivilegedCommands(_ commands: [String]) throws {
+    private nonisolated static func runPrivilegedCommands(_ commands: [String], name: String) throws {
         guard !commands.isEmpty else {
             return
         }
-
-        let script = """
-        #!/bin/sh
-        set -eu
-        \(commands.joined(separator: "\n"))
-        """
-
-        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("NulConnect-SystemProxy", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-        let scriptURL = tempDirectory.appendingPathComponent("system-proxy-\(UUID().uuidString).sh", isDirectory: false)
-        guard let scriptData = script.data(using: .utf8) else {
-            throw NulConnectSystemProxyManagerError.privilegedExecutionFailed("failed to encode shell script")
-        }
-        try scriptData.write(to: scriptURL, options: [.atomic])
-
-        defer {
-            try? FileManager.default.removeItem(at: scriptURL)
-        }
-
-        let appleScriptCommand = "do shell script \(appleScriptStringLiteral("/bin/sh \(scriptURL.path)")) with administrator privileges"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", appleScriptCommand]
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
         do {
-            try process.run()
+            try NulConnectPrivilegedExecutor.runShellScript(
+                commands.joined(separator: "\n"),
+                name: name
+            )
         } catch {
-            throw NulConnectSystemProxyManagerError.privilegedExecutionFailed(error.localizedDescription)
+            throw NulConnectSystemProxyManagerError.privilegedExecutionFailed(
+                error.localizedDescription
+            )
         }
-
-        process.waitUntilExit()
-
-        let stdout = String(decoding: outputPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        let stderr = String(decoding: errorPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-
-        guard process.terminationStatus == 0 else {
-            let message = [stdout, stderr].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            throw NulConnectSystemProxyManagerError.privilegedExecutionFailed(message.isEmpty ? "unknown error" : message)
-        }
-    }
-
-    private nonisolated static func appleScriptStringLiteral(_ string: String) -> String {
-        "\"" + string
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
     private nonisolated static func shellQuote(_ string: String) -> String {
-        "'" + string.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        NulConnectPrivilegedExecutor.shellQuote(string)
     }
 
     private nonisolated static var networkSetupPath: String {

@@ -1,68 +1,72 @@
-#if NULCONNECT_ENABLE_TUN
 import Foundation
 
-enum NulConnectTunnelConstants {
-    static let appGroupIdentifier = "group.com.nulstudio.NulConnect"
-    static let providerBundleIdentifier = "com.nulstudio.NulConnect.TunnelExtension"
-    static let launchConfigurationFilename = "tunnel-launch-configuration.json"
-}
-
-struct NulConnectTunnelLaunchConfiguration: Codable, Sendable {
-    var profile: NulConnectProfile
-    var session: ATRSessionMaterial
-    var resource: ATRResourceSnapshot
+nonisolated struct NulConnectTunnelLaunchConfiguration: Codable, Sendable {
+    var proxyEndpoint: NulConnectProxyEndpoint
+    var mtu: UInt16
+    var setupRoutes: Bool
     var savedAt: Date
 
     init(
-        profile: NulConnectProfile,
-        session: ATRSessionMaterial,
-        resource: ATRResourceSnapshot,
+        proxyEndpoint: NulConnectProxyEndpoint,
+        mtu: UInt16 = 1500,
+        setupRoutes: Bool = true,
         savedAt: Date = .now
     ) {
-        self.profile = profile
-        self.session = session
-        self.resource = resource
+        self.proxyEndpoint = proxyEndpoint
+        self.mtu = mtu
+        self.setupRoutes = setupRoutes
         self.savedAt = savedAt
     }
 }
 
-enum NulConnectTunnelSharedStoreError: LocalizedError {
-    case appGroupUnavailable(String)
+nonisolated struct NulConnectTunHelperConfiguration: Codable, Sendable {
+    var proxyURL: String
+    var tunName: String?
+    var dnsStrategy: String
+    var dnsAddress: String
+    var virtualDNSPool: String
+    var bypassCIDRs: [String]
+    var mtu: UInt16
+    var tcpTimeoutSeconds: UInt64
+    var udpTimeoutSeconds: UInt64
+    var maxSessions: Int
+    var setupRoutes: Bool
+    var ipv6Enabled: Bool
+    var packetInformation: Bool
+    var exitOnFatalError: Bool
+    var verbosity: String
 
-    var errorDescription: String? {
-        switch self {
-        case .appGroupUnavailable(let identifier):
-            return "无法访问 App Group: \(identifier)"
-        }
+    enum CodingKeys: String, CodingKey {
+        case proxyURL = "proxy_url"
+        case tunName = "tun_name"
+        case dnsStrategy = "dns_strategy"
+        case dnsAddress = "dns_addr"
+        case virtualDNSPool = "virtual_dns_pool"
+        case bypassCIDRs = "bypass_cidrs"
+        case mtu
+        case tcpTimeoutSeconds = "tcp_timeout_secs"
+        case udpTimeoutSeconds = "udp_timeout_secs"
+        case maxSessions = "max_sessions"
+        case setupRoutes = "setup_routes"
+        case ipv6Enabled = "ipv6_enabled"
+        case packetInformation = "packet_information"
+        case exitOnFatalError = "exit_on_fatal_error"
+        case verbosity
     }
 }
 
-enum NulConnectTunnelSharedStore {
-    static func containerURL() throws -> URL {
-        guard let url = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: NulConnectTunnelConstants.appGroupIdentifier
-        ) else {
-            throw NulConnectTunnelSharedStoreError.appGroupUnavailable(NulConnectTunnelConstants.appGroupIdentifier)
-        }
-        return url
-    }
+nonisolated struct NulConnectTunHelperState: Codable, Sendable {
+    var pid: Int32
+    var status: String
+    var message: String?
+    var updatedAtUnixSeconds: UInt64
+    var sessions: Int?
 
-    static func configurationURL() throws -> URL {
-        try containerURL().appendingPathComponent(
-            NulConnectTunnelConstants.launchConfigurationFilename,
-            isDirectory: false
-        )
-    }
-
-    static func save(_ configuration: NulConnectTunnelLaunchConfiguration) throws {
-        let url = try configurationURL()
-        let data = try NulConnectJSON.encoder.encode(configuration)
-        try data.write(to: url, options: [.atomic, .completeFileProtectionUnlessOpen])
-    }
-
-    static func load() throws -> NulConnectTunnelLaunchConfiguration {
-        let data = try Data(contentsOf: try configurationURL())
-        return try NulConnectJSON.decoder.decode(NulConnectTunnelLaunchConfiguration.self, from: data)
+    enum CodingKeys: String, CodingKey {
+        case pid
+        case status
+        case message
+        case updatedAtUnixSeconds = "updated_at_unix_secs"
+        case sessions
     }
 }
-#endif

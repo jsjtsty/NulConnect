@@ -27,12 +27,11 @@ final class AppModel: ObservableObject {
     private let sessionVault: SessionVault
     private let resourceStore: ResourceSnapshotStore
     private let systemProxyManager: NulConnectSystemProxyManager?
-#if NULCONNECT_ENABLE_TUN
-    private let tunnelManager = NulConnectTunnelManager()
-#endif
+    private let tunnelManager: NulConnectTunnelManager?
     private var profilePersistenceTask: Task<Void, Never>?
     private var loginTask: Task<Void, Never>?
     private var proxyService: NulConnectProxyService?
+    private var tunnelProxyService: NulConnectProxyService?
     private var proxyTask: Task<Void, Never>?
     private var tunnelTask: Task<Void, Never>?
     private var storedSessionMaterial: ATRSessionMaterial?
@@ -65,6 +64,7 @@ final class AppModel: ObservableObject {
         self.bannerMessage = bannerMessage
         self.storedSessionMaterial = storedSessionMaterial
         self.systemProxyManager = try? NulConnectSystemProxyManager()
+        self.tunnelManager = try? NulConnectTunnelManager()
     }
 
     static func bootstrap() -> AppModel {
@@ -126,15 +126,11 @@ final class AppModel: ObservableObject {
     }
 
     var isTunnelFeatureAvailable: Bool {
-#if NULCONNECT_ENABLE_TUN
-        true
-#else
-        false
-#endif
+        tunnelManager != nil
     }
 
     var tunnelUnavailableMessage: String {
-        "暂不支持该功能，将在后续版本实现。"
+        "TUN 模式需要可用的特权组件。"
     }
 
     var isProxyRunning: Bool {
@@ -816,9 +812,18 @@ final class AppModel: ObservableObject {
     }
 
     func startTunnelMode() {
-#if NULCONNECT_ENABLE_TUN
         guard effectiveRouteMode == .tun else {
             bannerMessage = "当前不是 TUN 模式"
+            return
+        }
+        guard let tunnelManager else {
+            tunnelState = .failed(message: tunnelUnavailableMessage)
+            connectionState = NulConnectConnectionState(
+                phase: .failed,
+                message: tunnelUnavailableMessage,
+                updatedAt: .now
+            )
+            bannerMessage = tunnelUnavailableMessage
             return
         }
         guard !isProxyRunning && !isProxyBusy else {
@@ -846,13 +851,24 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             do {
                 let (session, resource) = try await self.refreshStoredSessionAndResourceForProxy()
-                let configuration = NulConnectTunnelLaunchConfiguration(
+                let service = try await NulConnectProxyService(
                     profile: profile,
                     session: session,
-                    resource: resource
+                    resource: resource,
+                    listenPort: profile.localProxyPort
                 )
-                try await self.tunnelManager.start(configuration: configuration)
+                service.onSessionInvalidated = { [weak self] error in
+                    Task { @MainActor [weak self] in
+                        self?.handleProxySessionInvalidated(error)
+                    }
+                }
+                let endpoint = try await service.start()
+                let configuration = NulConnectTunnelLaunchConfiguration(
+                    proxyEndpoint: endpoint
+                )
+                try await tunnelManager.start(configuration: configuration)
                 await MainActor.run {
+                    self.tunnelProxyService = service
                     self.tunnelState = .running
                     self.connectionState = NulConnectConnectionState(
                         phase: .connected,
@@ -863,7 +879,10 @@ final class AppModel: ObservableObject {
                     self.lastPersistenceErrorMessage = nil
                 }
             } catch {
+                try? await tunnelManager.stop()
                 await MainActor.run {
+                    self.tunnelProxyService?.stop()
+                    self.tunnelProxyService = nil
                     self.tunnelState = .failed(message: error.localizedDescription)
                     self.connectionState = NulConnectConnectionState(
                         phase: .failed,
@@ -875,19 +894,9 @@ final class AppModel: ObservableObject {
                 }
             }
         }
-#else
-        tunnelState = .failed(message: tunnelUnavailableMessage)
-        connectionState = NulConnectConnectionState(
-            phase: .failed,
-            message: tunnelUnavailableMessage,
-            updatedAt: .now
-        )
-        bannerMessage = tunnelUnavailableMessage
-#endif
     }
 
     func stopTunnelMode() {
-#if NULCONNECT_ENABLE_TUN
         guard isTunnelRunning || isTunnelBusy else {
             tunnelState = .stopped
             connectionState = NulConnectConnectionState(
@@ -908,8 +917,10 @@ final class AppModel: ObservableObject {
         tunnelTask?.cancel()
         tunnelTask = Task { [weak self] in
             guard let self else { return }
-            await self.tunnelManager.stop()
+            try? await self.tunnelManager?.stop()
             await MainActor.run {
+                self.tunnelProxyService?.stop()
+                self.tunnelProxyService = nil
                 self.tunnelTask = nil
                 self.tunnelState = .stopped
                 self.connectionState = NulConnectConnectionState(
@@ -920,21 +931,24 @@ final class AppModel: ObservableObject {
                 self.bannerMessage = "TUN 模式已停止"
             }
         }
-#else
-        tunnelTask?.cancel()
-        tunnelTask = nil
-        tunnelState = .stopped
-        connectionState = NulConnectConnectionState(
-            phase: .disconnected,
-            message: "TUN 未启用",
-            updatedAt: .now
-        )
-        bannerMessage = tunnelUnavailableMessage
-#endif
     }
 
     private func handleProxySessionInvalidated(_ error: Error) {
         print("[NulConnect][Proxy] session invalidated: \(error)")
+        let wasTunnelMode = tunnelProxyService != nil || isTunnelRunning || isTunnelBusy
+        if wasTunnelMode {
+            tunnelProxyService?.stop()
+            tunnelProxyService = nil
+            tunnelTask?.cancel()
+            tunnelTask = nil
+            Task { [tunnelManager] in
+                try? await tunnelManager?.stop()
+            }
+            tunnelState = .failed(message: "登录会话已失效")
+            failProxySessionInvalidated(error)
+            return
+        }
+
         proxyService?.stop()
         proxyService = nil
         proxyTask?.cancel()
@@ -1066,12 +1080,6 @@ final class AppModel: ObservableObject {
     }
 
     private var runtimeProfile: NulConnectProfile {
-        var profile = self.profile.normalizedForHITAuth()
-#if !NULCONNECT_ENABLE_TUN
-        if profile.routeMode == .tun {
-            profile.routeMode = .proxy
-        }
-#endif
-        return profile
+        self.profile.normalizedForHITAuth()
     }
 }
