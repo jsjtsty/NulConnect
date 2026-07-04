@@ -157,7 +157,6 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
         let configURL = stateDirectory.appendingPathComponent("config.json", isDirectory: false)
         let stateURL = stateDirectory.appendingPathComponent("state.json", isDirectory: false)
         let stopURL = stateDirectory.appendingPathComponent("stop", isDirectory: false)
-        let logURL = stateDirectory.appendingPathComponent("helper.log", isDirectory: false)
         let helperURL = try helperExecutableURL()
 
         let helperConfig = makeHelperConfiguration(configuration)
@@ -170,10 +169,10 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
         mkdir -p \(NulConnectPrivilegedExecutor.shellQuote(stateDirectory.path))
         rm -f \(NulConnectPrivilegedExecutor.shellQuote(stopURL.path))
         chmod 755 \(NulConnectPrivilegedExecutor.shellQuote(helperURL.path))
-        nohup \(NulConnectPrivilegedExecutor.shellQuote(helperURL.path)) run \(NulConnectPrivilegedExecutor.shellQuote(configURL.path)) \(NulConnectPrivilegedExecutor.shellQuote(stateURL.path)) \(NulConnectPrivilegedExecutor.shellQuote(stopURL.path)) > \(NulConnectPrivilegedExecutor.shellQuote(logURL.path)) 2>&1 &
+        nohup \(NulConnectPrivilegedExecutor.shellQuote(helperURL.path)) run \(NulConnectPrivilegedExecutor.shellQuote(configURL.path)) \(NulConnectPrivilegedExecutor.shellQuote(stateURL.path)) \(NulConnectPrivilegedExecutor.shellQuote(stopURL.path)) >/dev/null 2>&1 &
         """
         try NulConnectPrivilegedExecutor.runShellScript(script, name: "tun-start")
-        try waitForRunningState(stateURL: stateURL, logURL: logURL)
+        try waitForRunningState(stateURL: stateURL)
     }
 
     private static func stopSync(stateDirectory: URL) throws {
@@ -226,7 +225,7 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
         try NulConnectPrivilegedExecutor.runShellScript(script, name: "tun-emergency-cleanup")
     }
 
-    private static func waitForRunningState(stateURL: URL, logURL: URL) throws {
+    private static func waitForRunningState(stateURL: URL) throws {
         let deadline = Date().addingTimeInterval(8)
         while Date() < deadline {
             if let state = readState(stateURL: stateURL) {
@@ -235,7 +234,7 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
                     return
                 case "failed":
                     throw NulConnectTunnelManagerError.helperFailed(
-                        state.message ?? readLog(logURL: logURL) ?? "unknown error"
+                        state.message ?? "unknown error"
                     )
                 default:
                     break
@@ -244,7 +243,7 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
             Thread.sleep(forTimeInterval: 0.2)
         }
         throw NulConnectTunnelManagerError.helperFailed(
-            readLog(logURL: logURL) ?? "helper did not report running state"
+            "helper did not report running state"
         )
     }
 
@@ -253,15 +252,6 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
             return nil
         }
         return try? makeTunnelJSONDecoder().decode(NulConnectTunHelperState.self, from: data)
-    }
-
-    private static func readLog(logURL: URL) -> String? {
-        guard let data = try? Data(contentsOf: logURL) else {
-            return nil
-        }
-        let text = String(decoding: data, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
     }
 
     private static func helperExecutableURL() throws -> URL {

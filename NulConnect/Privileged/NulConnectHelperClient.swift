@@ -108,7 +108,6 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
         let script = """
         mkdir -p \(NulConnectPrivilegedExecutor.shellQuote(Self.installDirectory))
         mkdir -p \(NulConnectPrivilegedExecutor.shellQuote(Self.stateDirectory))
-        mkdir -p /Library/Logs/NulConnect
         cp -f \(NulConnectPrivilegedExecutor.shellQuote(helperURL.path)) \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
         chown root:wheel \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
         chmod 755 \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
@@ -426,8 +425,8 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             "GroupName": "staff",
             "RunAtLoad": true,
             "KeepAlive": true,
-            "StandardOutPath": "/Library/Logs/NulConnect/helper.out.log",
-            "StandardErrorPath": "/Library/Logs/NulConnect/helper.err.log"
+            "StandardOutPath": "/dev/null",
+            "StandardErrorPath": "/dev/null"
         ]
     }
 

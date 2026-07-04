@@ -16,7 +16,7 @@ actor NulConnectAuthEngine {
         return methods
     }
 
-    func resolveWebLoginSession(for method: ATRAuthMethod) async throws -> NulConnectWebLoginSession {
+    func resolveWebLoginSession(for method: ATRAuthMethod, deviceID: String) async throws -> NulConnectWebLoginSession {
         guard let session, let configuration else {
             throw NulConnectLoginError.noSession
         }
@@ -24,7 +24,6 @@ actor NulConnectAuthEngine {
             throw NulConnectLoginError.unsupportedAuthType(method.authType)
         }
 
-        let deviceID = UUID().uuidString.lowercased()
         let startURL = try await NulConnectAuthWorker.run {
             try session.prepareCallbackLogin(deviceID: deviceID)
             return try session.resolveLoginURL(method.loginURL)
