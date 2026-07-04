@@ -67,9 +67,11 @@ final class NulConnectProxyService {
 
     func start() async throws -> NulConnectProxyEndpoint {
         if let endpoint {
+            NulConnectDiagnostics.log("[NulConnect][Proxy] start: reusing endpoint=\(endpoint.host):\(endpoint.port)")
             return endpoint
         }
 
+        NulConnectDiagnostics.log("[NulConnect][Proxy] start: listen=\(listenHost):\(listenPort) socks5=true http=true")
         let service = try client.startProxyService(
             configuration: ATRProxyServiceConfiguration(
                 listenHost: listenHost,
@@ -84,11 +86,17 @@ final class NulConnectProxyService {
         let endpoint = NulConnectProxyEndpoint(host: atrEndpoint.host, port: atrEndpoint.port)
         self.service = service
         self.endpoint = endpoint
+        NulConnectDiagnostics.log("[NulConnect][Proxy] start: ready endpoint=\(endpoint.host):\(endpoint.port)")
         startEventMonitor(service)
         return endpoint
     }
 
     func stop() {
+        if let endpoint {
+            NulConnectDiagnostics.log("[NulConnect][Proxy] stop: endpoint=\(endpoint.host):\(endpoint.port)")
+        } else {
+            NulConnectDiagnostics.log("[NulConnect][Proxy] stop: no active endpoint")
+        }
         eventMonitorTask?.cancel()
         eventMonitorTask = nil
         try? service?.stop()
@@ -98,21 +106,21 @@ final class NulConnectProxyService {
 
     func probeSOCKS5() async {
         guard let service else {
-            print("[NulConnect][ProxyProbe] skipped: proxy service not ready")
+            NulConnectDiagnostics.log("[NulConnect][ProxyProbe] skipped: proxy service not ready")
             return
         }
         do {
             let endpoint = try service.endpoint()
             let stats = try service.stats()
-            print("[NulConnect][ProxyProbe] rust proxy ready endpoint=\(endpoint.host):\(endpoint.port) active=\(stats.activeConnections) total=\(stats.totalConnections)")
+            NulConnectDiagnostics.log("[NulConnect][ProxyProbe] rust proxy ready endpoint=\(endpoint.host):\(endpoint.port) active=\(stats.activeConnections) total=\(stats.totalConnections)")
             if let lastError = stats.lastError, !lastError.isEmpty {
-                print("[NulConnect][ProxyProbe] rust proxy lastError=\(lastError)")
+                NulConnectDiagnostics.log("[NulConnect][ProxyProbe] rust proxy lastError=\(lastError)")
             }
             if let lastEvent = stats.lastEvent {
-                print("[NulConnect][ProxyProbe] rust proxy lastEvent=\(lastEvent)")
+                NulConnectDiagnostics.log("[NulConnect][ProxyProbe] rust proxy lastEvent=\(lastEvent)")
             }
         } catch {
-            print("[NulConnect][ProxyProbe] failed: \(error)")
+            NulConnectDiagnostics.log("[NulConnect][ProxyProbe] failed: \(error)")
         }
     }
 
@@ -120,27 +128,35 @@ final class NulConnectProxyService {
         eventMonitorTask?.cancel()
         let onSessionInvalidated = onSessionInvalidated
         eventMonitorTask = Task.detached(priority: .utility) { [service, onSessionInvalidated] in
+            var pollCount = 0
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(1))
                     guard !Task.isCancelled else { return }
+                    pollCount += 1
+                    if pollCount % 2 == 0 {
+                        let stats = try service.stats()
+                        let lastEvent = stats.lastEvent.map { String(describing: $0) } ?? "nil"
+                        NulConnectDiagnostics.log("[NulConnect][Proxy] stats: active=\(stats.activeConnections) total=\(stats.totalConnections) lastError=\(stats.lastError ?? "nil") lastEvent=\(lastEvent)")
+                    }
                     guard let event = try service.takeEvent() else {
                         continue
                     }
                     switch event {
                     case .sessionInvalidated(let message):
+                        NulConnectDiagnostics.log("[NulConnect][Proxy] event: sessionInvalidated message=\(message)")
                         await MainActor.run {
                             onSessionInvalidated?(
                                 NulConnectProxyServiceError.sessionExpired(message)
                             )
                         }
-                    case .error:
-                        break
+                    case .error(let message):
+                        NulConnectDiagnostics.log("[NulConnect][Proxy] event: error message=\(message)")
                     }
                 } catch is CancellationError {
                     return
                 } catch {
-                    print("[NulConnect][Proxy] event monitor failed: \(error)")
+                    NulConnectDiagnostics.log("[NulConnect][Proxy] event monitor failed: \(error)")
                 }
             }
         }

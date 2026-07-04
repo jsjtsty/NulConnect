@@ -50,6 +50,7 @@ nonisolated enum NulConnectSystemProxyManagerError: LocalizedError {
 
 nonisolated final class NulConnectSystemProxyManager: @unchecked Sendable {
     private let snapshotURL: URL
+    private let helperClient = NulConnectHelperClient()
 
     init(baseDirectory: URL? = nil) throws {
         let root = try NulConnectStorageDirectory.rootDirectory(override: baseDirectory)
@@ -60,17 +61,54 @@ nonisolated final class NulConnectSystemProxyManager: @unchecked Sendable {
         FileManager.default.fileExists(atPath: snapshotURL.path)
     }
 
-    func enable(endpoint: NulConnectProxyEndpoint, serverHost: String) async throws -> Int {
+    func enable(
+        endpoint: NulConnectProxyEndpoint,
+        serverHost: String,
+        helperActivityReporter: NulConnectHelperClient.ActivityReporter? = nil
+    ) async throws -> Int {
+        print("[NulConnect][SystemProxy] enable: endpoint=\(endpoint.host):\(endpoint.port), server=\(serverHost)")
+        let helperRequiresInstallOrUpgrade = try helperClient.requiresInstallOrUpgrade()
+        do {
+            try await helperClient.ensureInstalledOrUpToDate(reporter: helperActivityReporter)
+            let count = try await helperClient.setSystemProxy(endpoint: endpoint, serverHost: serverHost)
+            print("[NulConnect][SystemProxy] enable via helper: success, services=\(count)")
+            return count
+        } catch {
+            print("[NulConnect][SystemProxy] enable via helper: FAILED - \(error.localizedDescription)")
+            if helperRequiresInstallOrUpgrade {
+                throw error
+            }
+            if helperClient.isInstalled() {
+                throw error
+            }
+            print("[NulConnect][SystemProxy] falling back to legacy runner")
+        }
+
         let snapshotURL = self.snapshotURL
         return try await Task.detached(priority: .utility) {
-            try Self.enableSync(endpoint: endpoint, serverHost: serverHost, snapshotURL: snapshotURL)
+            let count = try Self.enableSync(endpoint: endpoint, serverHost: serverHost, snapshotURL: snapshotURL)
+            print("[NulConnect][SystemProxy] enable via legacy: success, services=\(count)")
+            return count
         }.value
     }
 
     func restore() async throws {
+        print("[NulConnect][SystemProxy] restore: starting")
+        if helperClient.isInstalled() {
+            do {
+                try await helperClient.restoreSystemProxy()
+                print("[NulConnect][SystemProxy] restore via helper: success")
+                return
+            } catch {
+                print("[NulConnect][SystemProxy] restore via helper: FAILED - \(error.localizedDescription)")
+                throw error
+            }
+        }
+
         let snapshotURL = self.snapshotURL
         try await Task.detached(priority: .utility) {
             try Self.restoreSync(snapshotURL: snapshotURL)
+            print("[NulConnect][SystemProxy] restore via legacy: success")
         }.value
     }
 

@@ -1,13 +1,33 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 final class NulConnectAppDelegate: NSObject, NSApplicationDelegate {
+    weak var model: AppModel?
+    private var isTerminating = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isTerminating else {
+            return .terminateNow
+        }
+        guard let model, model.requiresNetworkCleanupForTermination else {
+            return .terminateNow
+        }
+
+        isTerminating = true
+        Task { @MainActor in
+            await model.prepareForApplicationTermination()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }
 
@@ -22,6 +42,9 @@ struct NulConnectApp: App {
             ContentView()
                 .environmentObject(model)
                 .environmentObject(windowCoordinator)
+                .onAppear {
+                    appDelegate.model = model
+                }
         }
         .defaultSize(width: 460, height: 520)
         .windowResizability(.contentSize)

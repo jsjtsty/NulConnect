@@ -246,6 +246,38 @@ enum NulConnectLoginState: Equatable, Sendable {
     }
 }
 
+enum NulConnectHelperActivityState: Equatable, Sendable {
+    case idle
+    case checking
+    case installing(message: String)
+    case waitingForStart(message: String)
+    case succeeded(message: String)
+    case failed(message: String)
+
+    var message: String? {
+        switch self {
+        case .idle:
+            return nil
+        case .checking:
+            return "正在检查特权组件"
+        case .installing(let message),
+             .waitingForStart(let message),
+             .succeeded(let message),
+             .failed(let message):
+            return message
+        }
+    }
+
+    var isBusy: Bool {
+        switch self {
+        case .checking, .installing, .waitingForStart:
+            return true
+        case .idle, .succeeded, .failed:
+            return false
+        }
+    }
+}
+
 struct NulConnectWebLoginSession: Identifiable, Sendable {
     let id: UUID
     let method: ATRAuthMethod

@@ -66,9 +66,7 @@ final class NulConnectWindowCoordinator: ObservableObject {
             guard let window = notification.object as? NSWindow else {
                 return
             }
-            Task { @MainActor [weak self] in
-                self?.handleWindowVisibilityChange(window)
-            }
+            self?.handleWindowVisibilityChange(window)
         }
         notificationTokens.append(token)
     }

@@ -21,6 +21,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var resourceSnapshot: ATRResourceSnapshot?
     @Published private(set) var bannerMessage: String?
     @Published private(set) var lastPersistenceErrorMessage: String?
+    @Published private(set) var helperActivityState: NulConnectHelperActivityState = .idle
 
     private let authEngine = NulConnectAuthEngine()
     private let profileStore: ProfileStore
@@ -28,6 +29,7 @@ final class AppModel: ObservableObject {
     private let resourceStore: ResourceSnapshotStore
     private let systemProxyManager: NulConnectSystemProxyManager?
     private let tunnelManager: NulConnectTunnelManager?
+    private let helperClient = NulConnectHelperClient()
     private var profilePersistenceTask: Task<Void, Never>?
     private var loginTask: Task<Void, Never>?
     private var proxyService: NulConnectProxyService?
@@ -115,6 +117,9 @@ final class AppModel: ObservableObject {
     }
 
     var effectiveSystemProxyEnabled: Bool {
+        guard isHelperInstalled else {
+            return false
+        }
         if case .enabled = systemProxyState {
             return true
         }
@@ -122,11 +127,28 @@ final class AppModel: ObservableObject {
     }
 
     var effectiveRouteMode: NulConnectRouteMode {
-        runtimeProfile.routeMode
+        isHelperInstalled ? runtimeProfile.routeMode : .proxy
+    }
+
+    var routePresentationModeTitle: String {
+        switch effectiveRouteMode {
+        case .tun:
+            return NulConnectRouteMode.tun.title
+        case .proxy:
+            return effectiveSystemProxyEnabled ? "系统代理" : NulConnectRouteMode.proxy.title
+        }
     }
 
     var isTunnelFeatureAvailable: Bool {
         tunnelManager != nil
+    }
+
+    var isHelperInstalled: Bool {
+        helperClient.isInstalled()
+    }
+
+    var isHelperActivityBusy: Bool {
+        helperActivityState.isBusy
     }
 
     var tunnelUnavailableMessage: String {
@@ -149,6 +171,15 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var isVPNConnectedOrConnecting: Bool {
+        switch connectionState.phase {
+        case .connecting, .connected, .disconnecting:
+            return true
+        case .disconnected, .failed:
+            return false
+        }
+    }
+
     var isSystemProxyEnabled: Bool {
         if case .enabled = systemProxyState {
             return true
@@ -166,22 +197,19 @@ final class AppModel: ObservableObject {
     }
 
     var canChangeSystemProxyPreference: Bool {
-        effectiveRouteMode == .proxy && !isProxyBusy && !isTunnelRunning && !isTunnelBusy
+        effectiveRouteMode == .proxy && isHelperInstalled && !isProxyBusy && !isTunnelRunning && !isTunnelBusy
     }
 
-    var systemProxyStateText: String {
-        switch systemProxyState {
-        case .disabled:
-            return profile.useSystemProxy ? "待启用" : "关闭"
-        case .enabling:
-            return "开启中"
-        case .enabled(let endpoint):
-            return "已开启 · \(endpoint.displayString)"
-        case .disabling:
-            return "关闭中"
-        case .failed(let message):
-            return "失败 · \(message)"
-        }
+    var effectiveSystemProxyPreference: Bool {
+        isHelperInstalled ? runtimeProfile.useSystemProxy : false
+    }
+
+    var effectiveRouteModePreference: NulConnectRouteMode {
+        isHelperInstalled ? runtimeProfile.routeMode : .proxy
+    }
+
+    var canUseTunnelMode: Bool {
+        isHelperInstalled && tunnelManager != nil
     }
 
     var isTunnelRunning: Bool {
@@ -198,6 +226,17 @@ final class AppModel: ObservableObject {
         default:
             return false
         }
+    }
+
+    var requiresNetworkCleanupForTermination: Bool {
+        isProxyRunning ||
+            isProxyBusy ||
+            isSystemProxyEnabled ||
+            isSystemProxyBusy ||
+            isTunnelRunning ||
+            isTunnelBusy ||
+            tunnelProxyService != nil ||
+            helperClient.isRunning()
     }
 
     var menuBarSystemImage: String {
@@ -345,6 +384,82 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func uninstallHelper() {
+        guard !isVPNConnectedOrConnecting else {
+            bannerMessage = "VPN 连接中或已连接时不能卸载特权组件"
+            return
+        }
+        bannerMessage = "正在卸载特权组件"
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            await self.stopAllNetworkModes()
+            do {
+                try self.helperClient.uninstall()
+                await MainActor.run {
+                    self.bannerMessage = "特权组件已卸载"
+                    self.lastPersistenceErrorMessage = nil
+                }
+            } catch {
+                await MainActor.run {
+                    self.bannerMessage = "卸载特权组件失败: \(error.localizedDescription)"
+                    self.lastPersistenceErrorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func reportHelperActivity(_ state: NulConnectHelperActivityState) {
+        helperActivityState = state
+        if let message = state.message {
+            bannerMessage = message
+        }
+    }
+
+    func ensureHelperInstalledOrUpToDate(reason: String) async throws {
+        guard !isVPNConnectedOrConnecting else {
+            bannerMessage = "VPN 连接中或已连接时不能安装或更新特权组件"
+            throw NulConnectHelperClientError.commandFailed("VPN 连接中或已连接时不能安装或更新特权组件")
+        }
+        await MainActor.run {
+            self.reportHelperActivity(.checking)
+            self.bannerMessage = "正在检查特权组件"
+            self.lastPersistenceErrorMessage = nil
+        }
+
+        let needsInstallOrUpgrade = try helperClient.requiresInstallOrUpgrade()
+        guard needsInstallOrUpgrade else {
+            await MainActor.run {
+                self.reportHelperActivity(.succeeded(message: "特权组件已是最新"))
+            }
+            return
+        }
+
+        do {
+            await MainActor.run {
+                self.reportHelperActivity(.installing(message: reason))
+            }
+            try await helperClient.ensureInstalledOrUpToDate(reporter: { [weak self] state in
+                self?.helperActivityState = state
+                if let message = state.message {
+                    self?.bannerMessage = message
+                }
+            })
+            await MainActor.run {
+                self.reportHelperActivity(.waitingForStart(message: "特权组件已安装，等待服务启动"))
+            }
+            await MainActor.run {
+                self.reportHelperActivity(.succeeded(message: "特权组件已准备就绪"))
+            }
+        } catch {
+            await MainActor.run {
+                self.reportHelperActivity(.failed(message: error.localizedDescription))
+                self.bannerMessage = "特权组件安装失败: \(error.localizedDescription)"
+                self.lastPersistenceErrorMessage = error.localizedDescription
+            }
+            throw error
+        }
+    }
+
     func replaceProfile(_ update: (inout NulConnectProfile) -> Void) {
         var copy = profile
         update(&copy)
@@ -352,6 +467,14 @@ final class AppModel: ObservableObject {
     }
 
     func setSystemProxyEnabled(_ enabled: Bool) {
+        guard isHelperInstalled else {
+            replaceProfile { profile in
+                profile.useSystemProxy = false
+            }
+            systemProxyState = .disabled
+            bannerMessage = "请先在“特权组件”页安装 helper"
+            return
+        }
         replaceProfile { profile in
             profile.useSystemProxy = enabled
         }
@@ -657,9 +780,27 @@ final class AppModel: ObservableObject {
             return
         }
 
+        guard isHelperInstalled else {
+            systemProxyState = .disabled
+            replaceProfile { profile in
+                profile.useSystemProxy = false
+            }
+            bannerMessage = "请先在“特权组件”页安装 helper"
+            return
+        }
+
         systemProxyState = .enabling
         do {
-            let serviceCount = try await systemProxyManager.enable(endpoint: endpoint, serverHost: runtimeProfile.serverHost)
+            let serviceCount = try await systemProxyManager.enable(
+                endpoint: endpoint,
+                serverHost: runtimeProfile.serverHost,
+                helperActivityReporter: { [weak self] state in
+                    self?.helperActivityState = state
+                    if let message = state.message {
+                        self?.bannerMessage = message
+                    }
+                }
+            )
             systemProxyState = .enabled(endpoint: endpoint)
             bannerMessage = "系统代理已开启，已配置 \(serviceCount) 个网络服务"
             lastPersistenceErrorMessage = nil
@@ -816,6 +957,10 @@ final class AppModel: ObservableObject {
             bannerMessage = "当前不是 TUN 模式"
             return
         }
+        guard isHelperInstalled else {
+            bannerMessage = "请先在“特权组件”页安装 helper"
+            return
+        }
         guard let tunnelManager else {
             tunnelState = .failed(message: tunnelUnavailableMessage)
             connectionState = NulConnectConnectionState(
@@ -850,7 +995,9 @@ final class AppModel: ObservableObject {
         tunnelTask = Task { [weak self] in
             guard let self else { return }
             do {
+                NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: refreshing session and resource")
                 let (session, resource) = try await self.refreshStoredSessionAndResourceForProxy()
+                NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: resource ip=\(resource.ipResources.count) domain=\(resource.domainResources.count) dns=\(resource.dnsResources.count) excluded=\(resource.excludedIPs.count) dnsServer=\(resource.dnsServer ?? "nil") nodes=\(resource.nodeGroups.count)")
                 let service = try await NulConnectProxyService(
                     profile: profile,
                     session: session,
@@ -863,12 +1010,26 @@ final class AppModel: ObservableObject {
                     }
                 }
                 let endpoint = try await service.start()
-                let configuration = NulConnectTunnelLaunchConfiguration(
-                    proxyEndpoint: endpoint
-                )
-                try await tunnelManager.start(configuration: configuration)
+                NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: local proxy endpoint=\(endpoint.host):\(endpoint.port)")
                 await MainActor.run {
                     self.tunnelProxyService = service
+                }
+                let configuration = await NulConnectTunnelManager.makeLaunchConfiguration(
+                    proxyEndpoint: endpoint,
+                    resource: resource,
+                    serverHost: profile.serverHost
+                )
+                NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: launch config dns=\(configuration.dnsAddress) mtu=\(configuration.mtu) setupRoutes=\(configuration.setupRoutes) bypass=\(configuration.bypassCIDRs.count) [\(configuration.bypassCIDRs.prefix(16).joined(separator: ", "))] managedRoutes=\(configuration.managedRouteCIDRs.count) [\(configuration.managedRouteCIDRs.prefix(16).joined(separator: ", "))]")
+                try await tunnelManager.start(
+                    configuration: configuration,
+                    helperActivityReporter: { [weak self] state in
+                        self?.helperActivityState = state
+                        if let message = state.message {
+                            self?.bannerMessage = message
+                        }
+                    }
+                )
+                await MainActor.run {
                     self.tunnelState = .running
                     self.connectionState = NulConnectConnectionState(
                         phase: .connected,
@@ -878,7 +1039,10 @@ final class AppModel: ObservableObject {
                     self.bannerMessage = "TUN 模式已启动"
                     self.lastPersistenceErrorMessage = nil
                 }
+                await service.probeSOCKS5()
+                await NulConnectDiagnostics.logNetworkSnapshot(reason: "tun-running")
             } catch {
+                NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: failed error=\(error.localizedDescription)")
                 try? await tunnelManager.stop()
                 await MainActor.run {
                     self.tunnelProxyService?.stop()
@@ -894,6 +1058,38 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+    }
+
+    func prepareForApplicationTermination() async {
+        tunnelTask?.cancel()
+        proxyTask?.cancel()
+
+        try? await tunnelManager?.cleanupPrivilegedState()
+
+        if tunnelProxyService != nil || isTunnelRunning || isTunnelBusy {
+            try? await tunnelManager?.stop()
+            tunnelProxyService?.stop()
+            tunnelProxyService = nil
+            tunnelTask = nil
+            tunnelState = .stopped
+        }
+
+        if isSystemProxyEnabled || isSystemProxyBusy {
+            await disableSystemProxy()
+        }
+
+        if proxyService != nil {
+            proxyService?.stop()
+            proxyService = nil
+            proxyTask = nil
+            proxyState = .stopped
+        }
+
+        connectionState = NulConnectConnectionState(
+            phase: .disconnected,
+            message: "网络组件已停止",
+            updatedAt: .now
+        )
     }
 
     func stopTunnelMode() {
@@ -917,18 +1113,31 @@ final class AppModel: ObservableObject {
         tunnelTask?.cancel()
         tunnelTask = Task { [weak self] in
             guard let self else { return }
-            try? await self.tunnelManager?.stop()
-            await MainActor.run {
-                self.tunnelProxyService?.stop()
-                self.tunnelProxyService = nil
-                self.tunnelTask = nil
-                self.tunnelState = .stopped
-                self.connectionState = NulConnectConnectionState(
-                    phase: .disconnected,
-                    message: "TUN 已停止",
-                    updatedAt: .now
-                )
-                self.bannerMessage = "TUN 模式已停止"
+            do {
+                try await self.tunnelManager?.stop()
+                await MainActor.run {
+                    self.tunnelProxyService?.stop()
+                    self.tunnelProxyService = nil
+                    self.tunnelTask = nil
+                    self.tunnelState = .stopped
+                    self.connectionState = NulConnectConnectionState(
+                        phase: .disconnected,
+                        message: "TUN 已停止",
+                        updatedAt: .now
+                    )
+                    self.bannerMessage = "TUN 模式已停止"
+                }
+            } catch {
+                await MainActor.run {
+                    self.tunnelTask = nil
+                    self.tunnelState = .failed(message: error.localizedDescription)
+                    self.connectionState = NulConnectConnectionState(
+                        phase: .failed,
+                        message: error.localizedDescription,
+                        updatedAt: .now
+                    )
+                    self.bannerMessage = "停止 TUN 失败: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -1056,6 +1265,20 @@ final class AppModel: ObservableObject {
         lastPersistenceErrorMessage = error.localizedDescription
     }
 
+    private func stopAllNetworkModes() async {
+        if isProxyRunning || isProxyBusy {
+            stopProxyMode()
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        if isTunnelRunning || isTunnelBusy {
+            stopTunnelMode()
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+        if isSystemProxyEnabled || isSystemProxyBusy {
+            await disableSystemProxy()
+        }
+    }
+
     private func scheduleProfilePersistence() {
         guard !suppressProfilePersistence else {
             return
@@ -1080,6 +1303,11 @@ final class AppModel: ObservableObject {
     }
 
     private var runtimeProfile: NulConnectProfile {
-        self.profile.normalizedForHITAuth()
+        var profile = self.profile.normalizedForHITAuth()
+        if !isHelperInstalled {
+            profile.routeMode = .proxy
+            profile.useSystemProxy = false
+        }
+        return profile
     }
 }

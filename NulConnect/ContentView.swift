@@ -62,12 +62,6 @@ struct ContentView: View {
             VStack(spacing: 4) {
                 Text(model.connectionState.phase.title)
                     .font(.title2.weight(.semibold))
-
-                Text(connectionSubtitle)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
             }
         }
         .frame(maxWidth: .infinity)
@@ -88,56 +82,21 @@ struct ContentView: View {
     }
 
     private var connectionDetails: some View {
-            GroupBox {
-                VStack(spacing: 10) {
-                DetailRow(title: "模式", value: model.effectiveRouteMode.title, symbol: "switch.2")
+        GroupBox {
+            VStack(spacing: 10) {
+                DetailRow(title: "模式", value: model.routePresentationModeTitle, symbol: "switch.2")
+                DetailRow(title: "服务器", value: serverDisplayText, symbol: "server.rack")
                 DetailRow(title: "本地代理", value: model.proxyEndpointText, symbol: "dot.radiowaves.left.and.right") {
                     copyProxyEndpoint()
                 }
-                DetailRow(title: "系统代理", value: model.systemProxyStateText, symbol: "macwindow")
-                DetailRow(title: "运行状态", value: runtimeStateText, symbol: runtimeStateSymbol)
-                }
             }
+        }
         .groupBoxStyle(.automatic)
     }
 
-    private var connectionSubtitle: String {
+    private var serverDisplayText: String {
         let host = model.profile.serverHost.isEmpty ? "未配置服务器" : model.profile.serverHost
         return "\(host):\(model.profile.serverPort)"
-    }
-
-    private var proxyStateText: String {
-        switch model.proxyState {
-        case .stopped:
-            return "未启动"
-        case .starting:
-            return "启动中"
-        case .running(let endpoint):
-            return "运行中 · \(endpoint.displayString)"
-        case .stopping:
-            return "停止中"
-        case .failed(let message):
-            return "失败 · \(message)"
-        }
-    }
-
-    private var tunnelStateText: String {
-        switch model.tunnelState {
-        case .stopped:
-            return "未启动"
-        case .starting:
-            return "启动中"
-        case .running:
-            return "运行中"
-        case .stopping:
-            return "停止中"
-        case .failed(let message):
-            return "失败 · \(message)"
-        }
-    }
-
-    private var runtimeStateText: String {
-        model.effectiveRouteMode == .tun ? tunnelStateText : proxyStateText
     }
 
     private var isProxyRunning: Bool {
@@ -223,36 +182,6 @@ struct ContentView: View {
         }
     }
 
-    private var proxyStateSymbol: String {
-        switch model.proxyState {
-        case .running:
-            return "checkmark.circle"
-        case .failed:
-            return "exclamationmark.triangle"
-        case .starting, .stopping:
-            return "arrow.triangle.2.circlepath"
-        case .stopped:
-            return "pause.circle"
-        }
-    }
-
-    private var tunnelStateSymbol: String {
-        switch model.tunnelState {
-        case .running:
-            return "checkmark.circle"
-        case .failed:
-            return "exclamationmark.triangle"
-        case .starting, .stopping:
-            return "arrow.triangle.2.circlepath"
-        case .stopped:
-            return "pause.circle"
-        }
-    }
-
-    private var runtimeStateSymbol: String {
-        model.effectiveRouteMode == .tun ? tunnelStateSymbol : proxyStateSymbol
-    }
-
     private func performPrimaryConnectionAction() {
         switch model.effectiveRouteMode {
         case .proxy:
@@ -274,18 +203,20 @@ struct ContentView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(model.proxyEndpointText, forType: .string)
     }
-
 }
 
 struct NulConnectSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var windowCoordinator: NulConnectWindowCoordinator
+    @State private var selectedRouteMode: NulConnectRouteMode = .proxy
+    @State private var showingHelperInstallConfirmation = false
+    @State private var showingHelperUninstallConfirmation = false
 
     var body: some View {
         TabView {
             serviceSettings
                 .tabItem {
-                    Label("服务", systemImage: "server.rack")
+                    Label("服务", systemImage: "slider.horizontal.3")
                 }
 
             connectionSettings
@@ -295,7 +226,12 @@ struct NulConnectSettingsView: View {
 
             dataSettings
                 .tabItem {
-                    Label("数据", systemImage: "externaldrive")
+                    Label("数据", systemImage: "externaldrive.fill")
+                }
+
+            helperSettings
+                .tabItem {
+                    Label("特权组件", systemImage: "shield.lefthalf.filled")
                 }
 
             aboutSettings
@@ -306,11 +242,83 @@ struct NulConnectSettingsView: View {
         .frame(width: 560)
         .fixedSize(horizontal: false, vertical: true)
         .padding(20)
+        .onAppear {
+            selectedRouteMode = model.effectiveRouteMode
+        }
+        .onChange(of: model.effectiveRouteMode) { _, newValue in
+            if selectedRouteMode != newValue {
+                selectedRouteMode = newValue
+            }
+        }
         .background(
             NulConnectWindowAccessor { window in
                 windowCoordinator.register(window: window, role: .settings)
             }
         )
+        .confirmationDialog(
+            "安装特权组件",
+            isPresented: $showingHelperInstallConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("继续安装", role: .destructive) {
+                Task {
+                    do {
+                        try await model.ensureHelperInstalledOrUpToDate(reason: "正在安装特权组件")
+                    } catch {
+                        // 状态已由 model 处理
+                    }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("安装特权组件需要管理员权限，可能降低系统安全性，只有在你明确需要系统代理或 TUN 模式时才建议继续。")
+        }
+        .confirmationDialog(
+            "卸载特权组件",
+            isPresented: $showingHelperUninstallConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("卸载") {
+                model.uninstallHelper()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("这会移除系统中的特权组件、LaunchDaemon 和状态文件，卸载后系统代理与 TUN 需要重新安装才能使用。")
+        }
+    }
+
+    private var helperSettings: some View {
+        Form {
+            Section("特权组件") {
+                LabeledContent("安装状态", value: model.isHelperInstalled ? "已安装" : "未安装")
+
+                SettingsActionRow(
+                    title: "安装或更新特权组件",
+                    subtitle: "安装特权组件以启用系统代理和 TUN 模式，非特殊情况不推荐安装。",
+                    systemImage: "arrow.down.circle.fill"
+                ) {
+                    showingHelperInstallConfirmation = true
+                }
+                .disabled(model.isHelperActivityBusy || model.isVPNConnectedOrConnecting)
+
+                if model.isHelperActivityBusy {
+                    Text("安装过程中请保持此页可见，等待授权和启动完成。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                SettingsActionRow(
+                    title: "卸载特权组件",
+                    subtitle: "移除用于支持系统代理和 TUN 模式的辅助程序、启动项和本地状态文件。",
+                    systemImage: "trash"
+                ) {
+                    showingHelperUninstallConfirmation = true
+                }
+                .disabled(!model.isHelperInstalled || model.isVPNConnectedOrConnecting)
+            }
+        }
+        .formStyle(.grouped)
     }
 
     private var serviceSettings: some View {
@@ -362,60 +370,54 @@ struct NulConnectSettingsView: View {
     private var connectionSettings: some View {
         Form {
             Section("模式") {
-                Picker("连接模式", selection: Binding(
-                    get: { model.effectiveRouteMode },
+                Picker(selection: Binding<NulConnectRouteMode>(
+                    get: { model.effectiveRouteModePreference },
                     set: { newValue in
-                        model.replaceProfile { profile in
-                            if newValue == .tun && !model.isTunnelFeatureAvailable {
-                                profile.routeMode = .proxy
-                            } else {
-                                profile.routeMode = newValue
-                            }
-                            profile.useSystemProxy = false
-                        }
+                        applySelectedRouteMode(newValue)
                     }
-                )) {
+                ), label: Text("连接模式")
+                    .foregroundStyle(model.effectiveRouteMode == .tun ? .red : .primary)) {
                     ForEach(NulConnectRouteMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
-                .disabled(!model.isTunnelFeatureAvailable || model.isProxyRunning || model.isTunnelRunning || model.isProxyBusy || model.isTunnelBusy)
+                .tint(model.effectiveRouteMode == .tun ? .red : .accentColor)
+                .disabled(!model.isTunnelFeatureAvailable || !model.isHelperInstalled || model.isProxyRunning || model.isTunnelRunning || model.isProxyBusy || model.isTunnelBusy)
 
-                if !model.isTunnelFeatureAvailable {
-                    HStack(alignment: .center, spacing: 8) {
-                        Image(systemName: "lock.shield")
-                            .foregroundStyle(.secondary)
-                            .frame(width: 18)
-
-                        Text(model.tunnelUnavailableMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                if model.effectiveRouteMode == .tun {
+                    PrivilegedFeatureNotice(
+                        systemImage: "network.badge.shield.half.filled",
+                        text: "TUN 模式会接管所有流量，可能导致未知问题，非特殊情况不建议使用此模式。",
+                        isDangerous: true
+                    )
                 }
 
                 Toggle(isOn: Binding(
-                    get: { model.profile.useSystemProxy },
+                    get: { model.effectiveSystemProxyPreference },
                     set: { newValue in
                         model.setSystemProxyEnabled(newValue)
                     }
                 )) {
                     Text("启用系统代理")
+                        .foregroundStyle(model.effectiveSystemProxyPreference ? .red : .primary)
                 }
-                .disabled(true)
-                // .disabled(!model.canChangeSystemProxyPreference || model.isSystemProxyBusy)
-                .help("修改系统代理需要管理员权限")
-                
-                HStack(alignment: .center, spacing: 8) {
-                    Image(systemName: "lock.shield")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18)
+                .tint(.red)
+                .disabled(!model.canChangeSystemProxyPreference || model.isSystemProxyBusy || !model.isHelperInstalled)
 
-                    Text(model.tunnelUnavailableMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                if (model.effectiveSystemProxyPreference) {
+                    PrivilegedFeatureNotice(
+                        systemImage: "network.badge.shield.half.filled",
+                        text: "系统代理模式可能与其他代理软件发生冲突，非特殊情况不建议使用此模式。",
+                        isDangerous: true
+                    )
+                }
+                
+                if !model.isHelperInstalled {
+                    PrivilegedFeatureNotice(
+                        systemImage: "lock.shield",
+                        text: "使用系统代理和 TUN 模式需要在“特权组件”页安装组件，非特殊情况不建议使用这些模式。"
+                    )
                 }
             }
 
@@ -426,7 +428,7 @@ struct NulConnectSettingsView: View {
                         model.replaceProfile { $0.localProxyPort = newValue }
                     }
                 ))
-                .disabled(model.isProxyRunning)
+                .disabled(model.isProxyRunning || !model.isHelperInstalled)
 
                 HStack(spacing: 12) {
                     Text("代理地址")
@@ -458,6 +460,32 @@ struct NulConnectSettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func applySelectedRouteMode(_ newValue: NulConnectRouteMode) {
+        guard model.isHelperInstalled else {
+            model.replaceProfile { profile in
+                profile.routeMode = .proxy
+                profile.useSystemProxy = false
+            }
+            selectedRouteMode = .proxy
+            return
+        }
+        guard !model.isVPNConnectedOrConnecting else {
+            selectedRouteMode = model.effectiveRouteMode
+            return
+        }
+        DispatchQueue.main.async {
+            model.replaceProfile { profile in
+                if newValue == .tun && !model.canUseTunnelMode {
+                    profile.routeMode = .proxy
+                } else {
+                    profile.routeMode = newValue
+                }
+                profile.useSystemProxy = false
+            }
+            selectedRouteMode = model.effectiveRouteMode
+        }
     }
 
     private var dataSettings: some View {
@@ -621,6 +649,30 @@ private struct PortTextField: View {
                 port = parsed
             }
         ))
+    }
+}
+
+private struct PrivilegedFeatureNotice: View {
+    let systemImage: String
+    let text: String
+    var isDangerous: Bool = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.footnote)
+                .foregroundStyle(foregroundColor)
+                .frame(width: 18, alignment: .center)
+
+            Text(text)
+                .font(.footnote)
+                .foregroundStyle(foregroundColor)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var foregroundColor: Color {
+        isDangerous ? .red : .secondary
     }
 }
 
