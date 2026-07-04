@@ -204,7 +204,7 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
         let script = """
         /bin/launchctl bootout system/com.nulstudio.NulConnect.helper >/dev/null 2>&1 || true
         /usr/bin/pkill -f '/Library/PrivilegedHelperTools/NulConnect/nulconnect-helper' >/dev/null 2>&1 || true
-        /usr/bin/pkill -f 'nulconnect-tun-helper run' >/dev/null 2>&1 || true
+        /usr/bin/pkill -f 'nulconnect-helper serve' >/dev/null 2>&1 || true
         /sbin/route -n delete -net 198.18.0.0/15 >/dev/null 2>&1 || true
         /sbin/route -n delete -net 198.18.0.0/16 >/dev/null 2>&1 || true
         /sbin/route -n delete -host 198.18.0.1 >/dev/null 2>&1 || true
@@ -255,7 +255,7 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
     }
 
     private static func helperExecutableURL() throws -> URL {
-        if let resourceURL = Bundle.main.resourceURL?.appendingPathComponent("nulconnect-tun-helper"),
+        if let resourceURL = Bundle.main.resourceURL?.appendingPathComponent("nulconnect-helper"),
            FileManager.default.fileExists(atPath: resourceURL.path) {
             return resourceURL
         }
@@ -264,7 +264,7 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Vendor/libreatrust/dynamic/nulconnect-tun-helper")
+            .appendingPathComponent("Vendor/libreatrust/dynamic/nulconnect-helper")
         if FileManager.default.fileExists(atPath: developmentURL.path) {
             return developmentURL
         }

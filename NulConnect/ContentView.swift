@@ -340,23 +340,25 @@ struct NulConnectSettingsView: View {
             }
 
             Section("HIT Web 登录") {
-                TextField("登录域", text: Binding(
-                    get: { model.profile.loginDomain },
-                    set: { newValue in
-                        model.replaceProfile { $0.loginDomain = newValue }
+                Picker("登录域", selection: loginDomainSelection) {
+                    Text("自动").tag("")
+                    ForEach(loginDomainOptions, id: \.self) { domain in
+                        Text(domain).tag(domain)
                     }
-                ))
+                }
+                .pickerStyle(.menu)
 
-                TextField("首选认证", text: Binding(
-                    get: { model.profile.preferredAuthType ?? "" },
-                    set: { newValue in
-                        model.replaceProfile { $0.preferredAuthType = newValue.isEmpty ? nil : newValue }
+                Picker("首选认证", selection: preferredAuthTypeSelection) {
+                    Text("自动").tag("")
+                    ForEach(preferredAuthTypeOptions, id: \.authType) { method in
+                        Text(preferredAuthTypeDisplayName(for: method)).tag(method.authType)
                     }
-                ))
+                }
+                .pickerStyle(.menu)
 
                 SettingsActionRow(
                     title: "重新登录",
-                    subtitle: "打开 HIT WebView 并刷新会话与资源快照。",
+                    subtitle: "通过 HIT 统一身份认证重新登录到服务器。",
                     systemImage: "person.badge.key"
                 ) {
                     model.startWebLogin()
@@ -428,7 +430,7 @@ struct NulConnectSettingsView: View {
                         model.replaceProfile { $0.localProxyPort = newValue }
                     }
                 ))
-                .disabled(model.isProxyRunning || !model.isHelperInstalled)
+                .disabled(model.isProxyRunning || model.isProxyBusy || model.isTunnelRunning || model.isTunnelBusy)
 
                 HStack(spacing: 12) {
                     Text("代理地址")
@@ -437,7 +439,6 @@ struct NulConnectSettingsView: View {
 
                     Text(model.proxyEndpointText)
                         .foregroundStyle(.primary)
-                        .textSelection(.enabled)
                 }
                 // .font(.subheadline)
                 .help("系统代理会指向这个本地代理地址，启用时需要管理员权限")
@@ -567,12 +568,56 @@ struct NulConnectSettingsView: View {
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
         return build?.isEmpty == false ? build ?? "未知" : "未知"
     }
+
+    private var loginDomainSelection: Binding<String> {
+        Binding(
+            get: { model.profile.loginDomain },
+            set: { newValue in
+                model.replaceProfile { $0.loginDomain = newValue }
+            }
+        )
+    }
+
+    private var preferredAuthTypeSelection: Binding<String> {
+        Binding(
+            get: { model.profile.preferredAuthType ?? "" },
+            set: { newValue in
+                model.replaceProfile { $0.preferredAuthType = newValue.isEmpty ? nil : newValue }
+            }
+        )
+    }
+
+    private var loginDomainOptions: [String] {
+        uniquePreservingOrder(model.availableLoginMethods.map(\.loginDomain))
+    }
+
+    private var preferredAuthTypeOptions: [ATRAuthMethod] {
+        uniquePreservingOrder(model.availableLoginMethods, key: \.authType)
+    }
+
+    private func preferredAuthTypeDisplayName(for method: ATRAuthMethod) -> String {
+        if method.authName.isEmpty {
+            return method.authType
+        }
+        return "\(method.authName) · \(method.authType)"
+    }
+
+    private func uniquePreservingOrder<T: Hashable>(_ values: [T]) -> [T] {
+        var seen = Set<T>()
+        return values.filter { seen.insert($0).inserted }
+    }
+
+    private func uniquePreservingOrder<T, Key: Hashable>(_ values: [T], key: KeyPath<T, Key>) -> [T] {
+        var seen = Set<Key>()
+        return values.filter { seen.insert($0[keyPath: key]).inserted }
+    }
 }
 
 struct NulConnectMenuBarContent: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var windowCoordinator: NulConnectWindowCoordinator
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -608,8 +653,14 @@ struct NulConnectMenuBarContent: View {
             }
             .disabled(model.isProxyBusy || model.isTunnelBusy || model.isSystemProxyBusy)
 
-            SettingsLink {
-                Text("打开设置")
+            Button("打开设置") {
+                NSApp.setActivationPolicy(.regular)
+                NSApp.activate(ignoringOtherApps: true)
+                openSettings()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    NSApp.activate(ignoringOtherApps: true)
+                    windowCoordinator.updateVisibilityAfterPresentation()
+                }
             }
 
             Divider()
@@ -627,6 +678,7 @@ struct NulConnectMenuBarContent: View {
         let host = model.profile.serverHost.isEmpty ? "未配置服务器" : model.profile.serverHost
         return "\(phase) · \(host)"
     }
+
 }
 
 private struct PortTextField: View {

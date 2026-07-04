@@ -520,6 +520,31 @@ final class AppModel: ObservableObject {
         return methods.first
     }
 
+    private func normalizeLoginSelectionDefaults(using methods: [ATRAuthMethod]) {
+        guard !methods.isEmpty else {
+            return
+        }
+
+        let suggestedMethod = preferredWebLoginMethod(in: methods) ?? methods[0]
+        let validLoginDomains = Set(methods.map(\.loginDomain))
+        let validAuthTypes = Set(methods.map(\.authType))
+        let needsLoginDomainUpdate = profile.loginDomain.isEmpty || !validLoginDomains.contains(profile.loginDomain)
+        let needsPreferredAuthUpdate = profile.preferredAuthType == nil || !validAuthTypes.contains(profile.preferredAuthType ?? "")
+
+        guard needsLoginDomainUpdate || needsPreferredAuthUpdate else {
+            return
+        }
+
+        replaceProfile { profile in
+            if needsLoginDomainUpdate {
+                profile.loginDomain = suggestedMethod.loginDomain
+            }
+            if needsPreferredAuthUpdate {
+                profile.preferredAuthType = suggestedMethod.authType
+            }
+        }
+    }
+
     private func capturePolicy(for method: ATRAuthMethod) -> NulConnectWebLoginCapturePolicy? {
         switch method.authType {
         case "auth/cas":
@@ -677,8 +702,9 @@ final class AppModel: ObservableObject {
         loginTask = Task { [authEngine] in
             do {
                 let methods = try await authEngine.loadMethods(configuration: configuration)
-                let supportedCount = methods.filter { self.capturePolicy(for: $0) != nil }.count
                 await MainActor.run {
+                    self.normalizeLoginSelectionDefaults(using: methods)
+                    let supportedCount = methods.filter { self.capturePolicy(for: $0) != nil }.count
                     self.availableLoginMethods = methods
                     self.loginState = supportedCount > 0 ? .ready(methodCount: supportedCount) : .failed(message: NulConnectLoginError.noWebLoginMethods.localizedDescription)
                     self.bannerMessage = methods.isEmpty ? "未获取到登录方式" : "已刷新登录方式"

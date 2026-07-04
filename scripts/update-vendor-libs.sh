@@ -41,16 +41,16 @@ mkdir -p \
 echo "building libreatrust..."
 cargo build --release --manifest-path "$LIBREATRUST_DIR/Cargo.toml"
 
-echo "building nulconnect-tun-helper..."
-cargo build --release --manifest-path "$TUN_DIR/Cargo.toml" --bin nulconnect-tun-helper
+echo "building nulconnect-helper..."
+cargo build --release --manifest-path "$TUN_DIR/Cargo.toml" --bin nulconnect-helper
 
 cp "$LIBREATRUST_DIR/target/release/libreatrust.dylib" "$VENDOR_DIR/dynamic/libreatrust.dylib"
 cp "$LIBREATRUST_DIR/target/release/libreatrust.a" "$VENDOR_DIR/static/libreatrust.a"
 cp "$LIBREATRUST_DIR/include/libreatrust.h" "$VENDOR_DIR/include/libreatrust.h"
-cp "$TUN_DIR/target/release/nulconnect-tun-helper" "$VENDOR_DIR/dynamic/nulconnect-tun-helper"
+cp "$TUN_DIR/target/release/nulconnect-helper" "$VENDOR_DIR/dynamic/nulconnect-helper"
 
 echo "updated:"
 echo "  $VENDOR_DIR/dynamic/libreatrust.dylib"
 echo "  $VENDOR_DIR/static/libreatrust.a"
 echo "  $VENDOR_DIR/include/libreatrust.h"
-echo "  $VENDOR_DIR/dynamic/nulconnect-tun-helper"
+echo "  $VENDOR_DIR/dynamic/nulconnect-helper"

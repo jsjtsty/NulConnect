@@ -159,7 +159,7 @@ stop_helper_processes() {
 
   log "killing stale helper/tun2proxy processes"
   pkill -f "$HELPER_BIN serve" >/dev/null 2>&1 || true
-  pkill -f 'nulconnect-tun-helper run' >/dev/null 2>&1 || true
+  pkill -f 'nulconnect-helper serve' >/dev/null 2>&1 || true
   pkill -f 'tun2proxy' >/dev/null 2>&1 || true
 }
 

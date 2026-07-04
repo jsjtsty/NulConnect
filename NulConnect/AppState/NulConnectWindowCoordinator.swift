@@ -28,18 +28,27 @@ final class NulConnectWindowCoordinator: ObservableObject {
 
     func register(window: NSWindow, role: NulConnectWindowRole) {
         window.identifier = role.windowIdentifier
+        window.collectionBehavior.insert(.fullScreenPrimary)
+        window.collectionBehavior.insert(.fullScreenAuxiliary)
         scheduleDockPolicyUpdate(afterNanoseconds: 0, allowsAccessoryPolicy: false)
         scheduleDockPolicyUpdate(afterNanoseconds: 150_000_000, allowsAccessoryPolicy: false)
+        if role == .settings {
+            DispatchQueue.main.async {
+                window.makeFirstResponder(nil)
+            }
+        }
     }
 
     @discardableResult
     func activateForPresentation(role: NulConnectWindowRole? = nil) -> Bool {
         NSApp.setActivationPolicy(.regular)
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
         var didShowWindow = false
         if let role {
             didShowWindow = showVisibleWindow(role: role)
         }
         NSApp.activate(ignoringOtherApps: true)
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
         return didShowWindow
     }
 
@@ -52,7 +61,9 @@ final class NulConnectWindowCoordinator: ObservableObject {
         guard let window = visibleManagedWindows(role: role).first else {
             return false
         }
+        window.orderFrontRegardless()
         window.makeKeyAndOrderFront(nil)
+        window.center()
         scheduleDockPolicyUpdate(afterNanoseconds: 0, allowsAccessoryPolicy: false)
         return true
     }

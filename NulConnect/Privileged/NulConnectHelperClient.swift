@@ -396,7 +396,7 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
     }
 
     private func bundledHelperURL() throws -> URL {
-        if let resourceURL = Bundle.main.resourceURL?.appendingPathComponent("nulconnect-tun-helper"),
+        if let resourceURL = Bundle.main.resourceURL?.appendingPathComponent("nulconnect-helper"),
            FileManager.default.fileExists(atPath: resourceURL.path) {
             return resourceURL
         }
@@ -405,7 +405,7 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Vendor/libreatrust/dynamic/nulconnect-tun-helper")
+            .appendingPathComponent("Vendor/libreatrust/dynamic/nulconnect-helper")
         if FileManager.default.fileExists(atPath: developmentURL.path) {
             return developmentURL
         }
