@@ -54,7 +54,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		27B822F12FF5855900E51188 /* NulConnect.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = NulConnect.app; path = "/Volumes/T7S-Projects/Projects/Xcode/NulConnect/NulConnect/build/Debug/NulConnect.app"; sourceTree = "<absolute>"; };
+		270A8A5A2FFD31FD000D7893 /* NulConnect.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NulConnect.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		27B823002FF5855A00E51188 /* NulConnectTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NulConnectTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		27B8230A2FF5855A00E51188 /* NulConnectUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NulConnectUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		27B8231E2FF5855A00E51188 /* libreatrust.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libreatrust.dylib; path = Vendor/libreatrust/dynamic/libreatrust.dylib; sourceTree = SOURCE_ROOT; };
@@ -126,6 +126,7 @@
 			children = (
 				27B823002FF5855A00E51188 /* NulConnectTests.xctest */,
 				27B8230A2FF5855A00E51188 /* NulConnectUITests.xctest */,
+				270A8A5A2FFD31FD000D7893 /* NulConnect.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -167,7 +168,7 @@
 			packageProductDependencies = (
 			);
 			productName = NulConnect;
-			productReference = 27B822F12FF5855900E51188 /* NulConnect.app */;
+			productReference = 270A8A5A2FFD31FD000D7893 /* NulConnect.app */;
 			productType = "com.apple.product-type.application";
 		};
 		27B822FF2FF5855A00E51188 /* NulConnectTests */ = {
@@ -486,7 +487,7 @@
 				CODE_SIGN_ENTITLEMENTS = NulConnect/NulConnect.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = 3F5CH9XJ2Z;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -502,7 +503,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.3;
+				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nulstudio.NulConnect;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -524,7 +525,7 @@
 				CODE_SIGN_ENTITLEMENTS = NulConnect/NulConnect.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = 3F5CH9XJ2Z;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -540,7 +541,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.3;
+				MARKETING_VERSION = 0.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nulstudio.NulConnect;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
