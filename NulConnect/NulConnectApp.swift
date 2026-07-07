@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import SwiftUI
 
 @MainActor
@@ -36,6 +37,10 @@ struct NulConnectApp: App {
     @NSApplicationDelegateAdaptor private var appDelegate: NulConnectAppDelegate
     @StateObject private var model = AppModel.bootstrap()
     @StateObject private var windowCoordinator = NulConnectWindowCoordinator()
+
+    init() {
+        signal(SIGPIPE, SIG_IGN)
+    }
 
     var body: some Scene {
         Window("NulConnect", id: "main") {

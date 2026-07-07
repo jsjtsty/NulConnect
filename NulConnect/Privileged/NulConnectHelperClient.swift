@@ -32,6 +32,8 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
     static let installedHelperPath = "/Library/PrivilegedHelperTools/NulConnect/nulconnect-helper"
     static let launchDaemonPath = "/Library/LaunchDaemons/com.nulstudio.NulConnect.helper.plist"
     static let stateDirectory = "/Library/Application Support/NulConnect"
+    static let logDirectory = "/Library/Logs/NulConnect"
+    static let helperLogPath = "/Library/Logs/NulConnect/helper.log"
     static let label = "com.nulstudio.NulConnect.helper"
 
     func isInstalled() -> Bool {
@@ -108,6 +110,9 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
         let script = """
         mkdir -p \(NulConnectPrivilegedExecutor.shellQuote(Self.installDirectory))
         mkdir -p \(NulConnectPrivilegedExecutor.shellQuote(Self.stateDirectory))
+        mkdir -p \(NulConnectPrivilegedExecutor.shellQuote(Self.logDirectory))
+        touch \(NulConnectPrivilegedExecutor.shellQuote(Self.helperLogPath))
+        chmod 666 \(NulConnectPrivilegedExecutor.shellQuote(Self.helperLogPath))
         cp -f \(NulConnectPrivilegedExecutor.shellQuote(helperURL.path)) \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
         chown root:wheel \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
         chmod 755 \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
@@ -242,6 +247,71 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
         try await send(command: ["command": "version"])
     }
 
+    func installedVersionString() async -> String? {
+        guard isInstalled() else {
+            return nil
+        }
+        if isRunning(),
+           let response = try? await version(),
+           let version = response["version"] as? String,
+           !version.isEmpty {
+            return version
+        }
+
+        return await Task.detached(priority: .utility) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: Self.installedHelperPath)
+            process.arguments = ["version"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = Pipe()
+            do {
+                try process.run()
+                process.waitUntilExit()
+                guard process.terminationStatus == 0 else {
+                    return nil
+                }
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(decoding: data, as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return output.isEmpty ? nil : output
+            } catch {
+                return nil
+            }
+        }.value
+    }
+
+    func bundledVersionString() async -> String? {
+        guard let helperURL = try? bundledHelperURL() else {
+            return nil
+        }
+        return await helperVersionString(at: helperURL)
+    }
+
+    private func helperVersionString(at url: URL) async -> String? {
+        await Task.detached(priority: .utility) {
+            let process = Process()
+            process.executableURL = url
+            process.arguments = ["version"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = Pipe()
+            do {
+                try process.run()
+                process.waitUntilExit()
+                guard process.terminationStatus == 0 else {
+                    return nil
+                }
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let output = String(decoding: data, as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return output.isEmpty ? nil : output
+            } catch {
+                return nil
+            }
+        }.value
+    }
+
     func startTun(configuration: NulConnectTunHelperConfiguration) async throws -> [String: Any] {
         let configData = try makeHelperJSONEncoder().encode(configuration)
         guard let config = try JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
@@ -304,6 +374,8 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             var tv = timeval(tv_sec: 20, tv_usec: 0)
             setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+            var noSIGPIPE: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSIGPIPE, socklen_t(MemoryLayout<Int32>.size))
 
             let connectResult = Self.connectUnixSocket(fd, path: Self.socketPath)
             if connectResult < 0 {
@@ -366,6 +438,9 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
                 let n = Darwin.write(fd, ptr.advanced(by: sent), data.count - sent)
                 if n < 0 {
                     let err = errno
+                    if err == EPIPE {
+                        throw NulConnectHelperClientError.commandFailed("特权组件已断开连接")
+                    }
                     throw NulConnectHelperClientError.commandFailed("写入失败: \(String(cString: strerror(err)))")
                 }
                 sent += n
@@ -425,8 +500,8 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             "GroupName": "staff",
             "RunAtLoad": true,
             "KeepAlive": true,
-            "StandardOutPath": "/dev/null",
-            "StandardErrorPath": "/dev/null"
+            "StandardOutPath": Self.helperLogPath,
+            "StandardErrorPath": Self.helperLogPath
         ]
     }
 

@@ -22,6 +22,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var bannerMessage: String?
     @Published private(set) var lastPersistenceErrorMessage: String?
     @Published private(set) var helperActivityState: NulConnectHelperActivityState = .idle
+    @Published private(set) var helperVersionText: String = "未安装"
+    @Published private(set) var bundledHelperVersionText: String = "读取中"
 
     private let authEngine = NulConnectAuthEngine()
     private let profileStore: ProfileStore
@@ -150,6 +152,17 @@ final class AppModel: ObservableObject {
 
     var isHelperActivityBusy: Bool {
         helperActivityState.isBusy
+    }
+
+    func refreshHelperVersion() {
+        helperVersionText = isHelperInstalled ? "读取中" : "未安装"
+        bundledHelperVersionText = "读取中"
+        Task {
+            async let installed = helperClient.installedVersionString()
+            async let bundled = helperClient.bundledVersionString()
+            helperVersionText = await installed ?? (isHelperInstalled ? "未知" : "未安装")
+            bundledHelperVersionText = await bundled ?? "未知"
+        }
     }
 
     var tunnelUnavailableMessage: String {
@@ -398,6 +411,7 @@ final class AppModel: ObservableObject {
                 await MainActor.run {
                     self.bannerMessage = "特权组件已卸载"
                     self.lastPersistenceErrorMessage = nil
+                    self.refreshHelperVersion()
                 }
             } catch {
                 await MainActor.run {
@@ -430,6 +444,7 @@ final class AppModel: ObservableObject {
         guard needsInstallOrUpgrade else {
             await MainActor.run {
                 self.reportHelperActivity(.succeeded(message: "特权组件已是最新"))
+                self.refreshHelperVersion()
             }
             return
         }
@@ -449,6 +464,7 @@ final class AppModel: ObservableObject {
             }
             await MainActor.run {
                 self.reportHelperActivity(.succeeded(message: "特权组件已准备就绪"))
+                self.refreshHelperVersion()
             }
         } catch {
             await MainActor.run {
@@ -1070,34 +1086,20 @@ final class AppModel: ObservableObject {
         )
 
         let profile = runtimeProfile
+        let clientConfiguration = self.clientConfiguration
         tunnelTask = Task { [weak self] in
             guard let self else { return }
             do {
                 NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: refreshing session and resource")
                 let (session, resource) = try await self.refreshStoredSessionAndResourceForProxy()
                 NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: resource ip=\(resource.ipResources.count) domain=\(resource.domainResources.count) dns=\(resource.dnsResources.count) excluded=\(resource.excludedIPs.count) dnsServer=\(resource.dnsServer ?? "nil") nodes=\(resource.nodeGroups.count)")
-                let service = try await NulConnectProxyService(
-                    profile: profile,
-                    session: session,
-                    resource: resource,
-                    listenPort: profile.localProxyPort
-                )
-                service.onSessionInvalidated = { [weak self] error in
-                    Task { @MainActor [weak self] in
-                        self?.handleProxySessionInvalidated(error)
-                    }
-                }
-                let endpoint = try await service.start()
-                NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: local proxy endpoint=\(endpoint.host):\(endpoint.port)")
-                await MainActor.run {
-                    self.tunnelProxyService = service
-                }
                 let configuration = await NulConnectTunnelManager.makeLaunchConfiguration(
-                    proxyEndpoint: endpoint,
+                    profile: clientConfiguration,
+                    session: session,
                     resource: resource,
                     serverHost: profile.serverHost
                 )
-                NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: launch config dns=\(configuration.dnsAddress) mtu=\(configuration.mtu) setupRoutes=\(configuration.setupRoutes) bypass=\(configuration.bypassCIDRs.count) [\(configuration.bypassCIDRs.prefix(16).joined(separator: ", "))] managedRoutes=\(configuration.managedRouteCIDRs.count) [\(configuration.managedRouteCIDRs.prefix(16).joined(separator: ", "))]")
+                NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: launch config dns=\(configuration.dnsAddress) mtu=\(configuration.mtu) setupRoutes=\(configuration.setupRoutes) managedRoutes=\(configuration.managedRouteCIDRs.count) [\(configuration.managedRouteCIDRs.prefix(16).joined(separator: ", "))]")
                 try await tunnelManager.start(
                     configuration: configuration,
                     helperActivityReporter: { [weak self] state in
@@ -1118,7 +1120,6 @@ final class AppModel: ObservableObject {
                     self.lastPersistenceErrorMessage = nil
                     self.startSessionKeepAlive()
                 }
-                await service.probeSOCKS5()
                 await NulConnectDiagnostics.logNetworkSnapshot(reason: "tun-running")
             } catch {
                 NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: failed error=\(error.localizedDescription)")

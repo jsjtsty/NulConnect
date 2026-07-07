@@ -31,12 +31,12 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
         configuration: NulConnectTunnelLaunchConfiguration,
         helperActivityReporter: NulConnectHelperClient.ActivityReporter? = nil
     ) async throws {
-        NulConnectDiagnostics.log("[NulConnect][Tunnel] start: proxy=\(configuration.proxyEndpoint.host):\(configuration.proxyEndpoint.port), dns=\(configuration.dnsAddress), mtu=\(configuration.mtu), setupRoutes=\(configuration.setupRoutes), bypass=\(configuration.bypassCIDRs.count) [\(configuration.bypassCIDRs.prefix(12).joined(separator: ", "))], managedRoutes=\(configuration.managedRouteCIDRs.count) [\(configuration.managedRouteCIDRs.prefix(12).joined(separator: ", "))]")
+        NulConnectDiagnostics.log("[NulConnect][Tunnel] start: server=\(configuration.clientConfiguration.serverHost):\(configuration.clientConfiguration.serverPort), dns=\(configuration.dnsAddress), mtu=\(configuration.mtu), setupRoutes=\(configuration.setupRoutes), managedRoutes=\(configuration.managedRouteCIDRs.count) [\(configuration.managedRouteCIDRs.prefix(12).joined(separator: ", "))]")
         let helperRequiresInstallOrUpgrade = try helperClient.requiresInstallOrUpgrade()
         do {
             try await helperClient.ensureInstalledOrUpToDate(reporter: helperActivityReporter)
             let helperConfiguration = Self.makeHelperConfiguration(configuration)
-            NulConnectDiagnostics.log("[NulConnect][Tunnel] start: helper config proxy=\(helperConfiguration.proxyURL) dnsStrategy=\(helperConfiguration.dnsStrategy) dns=\(helperConfiguration.dnsAddress) virtualPool=\(helperConfiguration.virtualDNSPool) setupRoutes=\(helperConfiguration.setupRoutes) ipv6=\(helperConfiguration.ipv6Enabled) mtu=\(helperConfiguration.mtu) tcpTimeout=\(helperConfiguration.tcpTimeoutSeconds) maxSessions=\(helperConfiguration.maxSessions) verbosity=\(helperConfiguration.verbosity)")
+            NulConnectDiagnostics.log("[NulConnect][Tunnel] start: helper config server=\(helperConfiguration.client.serverHost):\(helperConfiguration.client.serverPort) dns=\(helperConfiguration.dnsAddress) setupRoutes=\(helperConfiguration.setupRoutes) mtu=\(helperConfiguration.mtu)")
             let response = try await helperClient.startTun(configuration: helperConfiguration)
             NulConnectDiagnostics.log("[NulConnect][Tunnel] start: helper response=\(response)")
             try await waitForPersistentHelperRunning()
@@ -131,15 +131,18 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
     }
 
     static func makeLaunchConfiguration(
-        proxyEndpoint: NulConnectProxyEndpoint,
+        profile: ATRClientConfiguration,
+        session: ATRSessionMaterial,
         resource: ATRResourceSnapshot,
         serverHost: String
     ) async -> NulConnectTunnelLaunchConfiguration {
         let dnsAddress = await preferredDNSServer(resource: resource)
         return NulConnectTunnelLaunchConfiguration(
-            proxyEndpoint: proxyEndpoint,
+            clientConfiguration: profile,
+            session: session,
+            resourceBytes: resource.resourceBytes,
+            serviceHost: serverHost,
             dnsAddress: dnsAddress,
-            bypassCIDRs: await makeBypassCIDRs(resource: resource, serverHost: serverHost),
             managedRouteCIDRs: makeManagedRouteCIDRs(resource: resource),
             managedDomains: makeManagedDomains(resource: resource),
             setupRoutes: true
@@ -274,23 +277,32 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
 
     private static func makeHelperConfiguration(_ configuration: NulConnectTunnelLaunchConfiguration) -> NulConnectTunHelperConfiguration {
         NulConnectTunHelperConfiguration(
-            proxyURL: "socks5://\(configuration.proxyEndpoint.host):\(configuration.proxyEndpoint.port)",
+            client: NulConnectTunHelperClientConfiguration(
+                serverHost: configuration.clientConfiguration.serverHost,
+                serverPort: configuration.clientConfiguration.serverPort,
+                userAgent: configuration.clientConfiguration.userAgent,
+                connectTimeoutMilliseconds: configuration.clientConfiguration.connectTimeout,
+                ioTimeoutMilliseconds: configuration.clientConfiguration.ioTimeout,
+                nodeProbeTimeoutMilliseconds: configuration.clientConfiguration.nodeProbeTimeout,
+                allowInsecureTLS: configuration.clientConfiguration.allowInsecureTLS
+            ),
+            session: NulConnectTunHelperSessionMaterial(
+                username: configuration.session.username,
+                sid: configuration.session.sid,
+                deviceID: configuration.session.deviceID,
+                connectionID: configuration.session.connectionID,
+                signKeyHex: configuration.session.signKeyHex,
+                cookies: configuration.session.cookies
+            ),
+            resourceBytes: configuration.resourceBytes,
+            serviceHost: configuration.serviceHost,
             tunName: nil,
-            dnsStrategy: "virtual",
             dnsAddress: configuration.dnsAddress,
-            virtualDNSPool: "198.18.0.0/15",
-            bypassCIDRs: configuration.bypassCIDRs,
             managedRouteCIDRs: configuration.managedRouteCIDRs,
             managedDomains: configuration.managedDomains,
             mtu: configuration.mtu,
-            tcpTimeoutSeconds: 600,
-            udpTimeoutSeconds: 30,
-            maxSessions: 512,
             setupRoutes: configuration.setupRoutes,
-            ipv6Enabled: false,
-            packetInformation: true,
-            exitOnFatalError: false,
-            verbosity: "debug"
+            exitOnFatalError: true
         )
     }
 
@@ -314,7 +326,6 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
             return nil
         }
         if trimmed.contains(":") {
-            // tun2proxy is currently launched without IPv6 support.
             return nil
         }
         return trimmed
@@ -359,24 +370,6 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
             var seen = Set<String>()
             return servers.filter { seen.insert($0).inserted }
         }.value
-    }
-
-    private static func makeBypassCIDRs(resource: ATRResourceSnapshot, serverHost: String) async -> [String] {
-        var cidrs = [
-            "127.0.0.0/8",
-            "169.254.0.0/16",
-            "224.0.0.0/4",
-            "255.255.255.255/32"
-        ]
-        cidrs.append(contentsOf: resource.excludedIPs.compactMap(ipv4HostCIDR))
-        cidrs.append(contentsOf: resource.nodeGroups.flatMap(\.addresses).compactMap(ipv4CIDRFromHostPort))
-        if let dnsServer = normalizedDNSServer(resource.dnsServer),
-           let dnsCIDR = ipv4HostCIDR(dnsServer) {
-            cidrs.append(dnsCIDR)
-        }
-        cidrs.append(contentsOf: await ipv4CIDRsForHost(serverHost))
-        var seen = Set<String>()
-        return cidrs.filter { seen.insert($0).inserted }
     }
 
     private static func makeManagedRouteCIDRs(resource: ATRResourceSnapshot) -> [String] {
@@ -448,71 +441,6 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
         let c = (value >> 8) & 0xff
         let d = value & 0xff
         return "\(a).\(b).\(c).\(d)"
-    }
-
-    private static func ipv4CIDRFromHostPort(_ value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-        if let direct = ipv4HostCIDR(trimmed) {
-            return direct
-        }
-        if trimmed.first == "[" {
-            return nil
-        }
-        let host = trimmed.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: true).first.map(String.init) ?? trimmed
-        return ipv4HostCIDR(host)
-    }
-
-    private static func ipv4CIDRsForHost(_ value: String) async -> [String] {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return []
-        }
-        if let cidr = ipv4HostCIDR(trimmed) {
-            return [cidr]
-        }
-
-        return await Task.detached(priority: .utility) {
-            var hints = addrinfo(
-                ai_flags: AI_ADDRCONFIG,
-                ai_family: AF_INET,
-                ai_socktype: SOCK_STREAM,
-                ai_protocol: IPPROTO_TCP,
-                ai_addrlen: 0,
-                ai_canonname: nil,
-                ai_addr: nil,
-                ai_next: nil
-            )
-            var result: UnsafeMutablePointer<addrinfo>?
-            guard getaddrinfo(trimmed, nil, &hints, &result) == 0, let result else {
-                return []
-            }
-            defer { freeaddrinfo(result) }
-
-            var output: [String] = []
-            var cursor: UnsafeMutablePointer<addrinfo>? = result
-            while let current = cursor {
-                defer { cursor = current.pointee.ai_next }
-                guard current.pointee.ai_family == AF_INET,
-                      let sockaddr = current.pointee.ai_addr else {
-                    continue
-                }
-                let addr = sockaddr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
-                    $0.pointee.sin_addr
-                }
-                var copy = addr
-                var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-                guard inet_ntop(AF_INET, &copy, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil else {
-                    continue
-                }
-                output.append("\(String(cString: buffer))/32")
-            }
-
-            var seen = Set<String>()
-            return output.filter { seen.insert($0).inserted }
-        }.value
     }
 
     private static func ipv4HostCIDR(_ value: String) -> String? {

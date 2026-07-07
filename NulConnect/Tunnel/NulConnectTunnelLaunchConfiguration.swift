@@ -1,9 +1,11 @@
 import Foundation
 
 nonisolated struct NulConnectTunnelLaunchConfiguration: Codable, Sendable {
-    var proxyEndpoint: NulConnectProxyEndpoint
+    var clientConfiguration: ATRClientConfiguration
+    var session: ATRSessionMaterial
+    var resourceBytes: Data
+    var serviceHost: String
     var dnsAddress: String
-    var bypassCIDRs: [String]
     var managedRouteCIDRs: [String]
     var managedDomains: [String]
     var mtu: UInt16
@@ -11,18 +13,22 @@ nonisolated struct NulConnectTunnelLaunchConfiguration: Codable, Sendable {
     var savedAt: Date
 
     init(
-        proxyEndpoint: NulConnectProxyEndpoint,
+        clientConfiguration: ATRClientConfiguration,
+        session: ATRSessionMaterial,
+        resourceBytes: Data,
+        serviceHost: String,
         dnsAddress: String,
-        bypassCIDRs: [String] = [],
         managedRouteCIDRs: [String] = [],
         managedDomains: [String] = [],
         mtu: UInt16 = 1400,
         setupRoutes: Bool = true,
         savedAt: Date = .now
     ) {
-        self.proxyEndpoint = proxyEndpoint
+        self.clientConfiguration = clientConfiguration
+        self.session = session
+        self.resourceBytes = resourceBytes
+        self.serviceHost = serviceHost
         self.dnsAddress = dnsAddress
-        self.bypassCIDRs = bypassCIDRs
         self.managedRouteCIDRs = managedRouteCIDRs
         self.managedDomains = managedDomains
         self.mtu = mtu
@@ -32,42 +38,68 @@ nonisolated struct NulConnectTunnelLaunchConfiguration: Codable, Sendable {
 }
 
 nonisolated struct NulConnectTunHelperConfiguration: Codable, Sendable {
-    var proxyURL: String
+    var client: NulConnectTunHelperClientConfiguration
+    var session: NulConnectTunHelperSessionMaterial
+    var resourceBytes: Data
+    var serviceHost: String
     var tunName: String?
-    var dnsStrategy: String
     var dnsAddress: String
-    var virtualDNSPool: String
-    var bypassCIDRs: [String]
     var managedRouteCIDRs: [String]
     var managedDomains: [String]
     var mtu: UInt16
-    var tcpTimeoutSeconds: UInt64
-    var udpTimeoutSeconds: UInt64
-    var maxSessions: Int
     var setupRoutes: Bool
-    var ipv6Enabled: Bool
-    var packetInformation: Bool
     var exitOnFatalError: Bool
-    var verbosity: String
 
     enum CodingKeys: String, CodingKey {
-        case proxyURL = "proxy_url"
+        case client
+        case session
+        case resourceBytes = "resource_bytes"
+        case serviceHost = "service_host"
         case tunName = "tun_name"
-        case dnsStrategy = "dns_strategy"
         case dnsAddress = "dns_addr"
-        case virtualDNSPool = "virtual_dns_pool"
-        case bypassCIDRs = "bypass_cidrs"
         case managedRouteCIDRs = "managed_route_cidrs"
         case managedDomains = "managed_domains"
         case mtu
-        case tcpTimeoutSeconds = "tcp_timeout_secs"
-        case udpTimeoutSeconds = "udp_timeout_secs"
-        case maxSessions = "max_sessions"
         case setupRoutes = "setup_routes"
-        case ipv6Enabled = "ipv6_enabled"
-        case packetInformation = "packet_information"
         case exitOnFatalError = "exit_on_fatal_error"
-        case verbosity
+    }
+}
+
+nonisolated struct NulConnectTunHelperClientConfiguration: Codable, Sendable {
+    var serverHost: String
+    var serverPort: UInt16
+    var userAgent: String
+    var connectTimeoutMilliseconds: UInt64
+    var ioTimeoutMilliseconds: UInt64
+    var nodeProbeTimeoutMilliseconds: UInt64
+    var allowInsecureTLS: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case serverHost = "server_host"
+        case serverPort = "server_port"
+        case userAgent = "user_agent"
+        case connectTimeoutMilliseconds = "connect_timeout_ms"
+        case ioTimeoutMilliseconds = "io_timeout_ms"
+        case nodeProbeTimeoutMilliseconds = "node_probe_timeout_ms"
+        case allowInsecureTLS = "allow_insecure_tls"
+    }
+}
+
+nonisolated struct NulConnectTunHelperSessionMaterial: Codable, Sendable {
+    var username: String
+    var sid: String
+    var deviceID: String
+    var connectionID: String
+    var signKeyHex: String
+    var cookies: [ATRCookie]
+
+    enum CodingKeys: String, CodingKey {
+        case username
+        case sid
+        case deviceID = "device_id"
+        case connectionID = "connection_id"
+        case signKeyHex = "sign_key_hex"
+        case cookies
     }
 }
 

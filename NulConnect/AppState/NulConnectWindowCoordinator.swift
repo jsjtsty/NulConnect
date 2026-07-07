@@ -27,6 +27,10 @@ final class NulConnectWindowCoordinator: ObservableObject {
     }
 
     func register(window: NSWindow, role: NulConnectWindowRole) {
+        guard window.identifier != role.windowIdentifier else {
+            return
+        }
+
         window.identifier = role.windowIdentifier
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.collectionBehavior.insert(.fullScreenAuxiliary)

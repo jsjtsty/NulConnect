@@ -211,6 +211,10 @@ struct NulConnectSettingsView: View {
     @State private var selectedRouteMode: NulConnectRouteMode = .proxy
     @State private var showingHelperInstallConfirmation = false
     @State private var showingHelperUninstallConfirmation = false
+    @State private var serverHostDraft = ""
+    @State private var serverPortDraft = ""
+    @State private var localProxyPortDraft = ""
+    @State private var userAgentDraft = ""
 
     var body: some View {
         TabView {
@@ -244,11 +248,27 @@ struct NulConnectSettingsView: View {
         .padding(20)
         .onAppear {
             selectedRouteMode = model.effectiveRouteMode
+            syncPortalDrafts()
+            syncLocalProxyDraft()
+            syncUserAgentDraft()
         }
-        .onChange(of: model.effectiveRouteMode) { _, newValue in
+        .onDisappear { commitDrafts() }
+        .onChange(of: model.effectiveRouteMode) { newValue in
             if selectedRouteMode != newValue {
                 selectedRouteMode = newValue
             }
+        }
+        .onChange(of: model.profile.serverHost) { _ in
+            syncPortalDrafts()
+        }
+        .onChange(of: model.profile.serverPort) { _ in
+            syncPortalDrafts()
+        }
+        .onChange(of: model.profile.localProxyPort) { _ in
+            syncLocalProxyDraft()
+        }
+        .onChange(of: model.profile.userAgent) { _ in
+            syncUserAgentDraft()
         }
         .background(
             NulConnectWindowAccessor { window in
@@ -291,6 +311,8 @@ struct NulConnectSettingsView: View {
         Form {
             Section("特权组件") {
                 LabeledContent("安装状态", value: model.isHelperInstalled ? "已安装" : "未安装")
+                LabeledContent("已安装版本", value: model.helperVersionText)
+                LabeledContent("内置版本", value: model.bundledHelperVersionText)
 
                 SettingsActionRow(
                     title: "安装或更新特权组件",
@@ -319,24 +341,19 @@ struct NulConnectSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            model.refreshHelperVersion()
+        }
     }
 
     private var serviceSettings: some View {
         Form {
             Section("VPN 门户") {
-                TextField("服务器", text: Binding(
-                    get: { model.profile.serverHost },
-                    set: { newValue in
-                        model.replaceProfile { $0.serverHost = newValue }
-                    }
-                ))
+                TextField("服务器", text: $serverHostDraft)
+                    .onSubmit { commitServerHostDraft() }
 
-                TextField("端口", value: Binding(
-                    get: { model.profile.serverPort },
-                    set: { newValue in
-                        model.replaceProfile { $0.serverPort = newValue }
-                    }
-                ), format: .number)
+                PortTextField("端口", text: $serverPortDraft)
+                    .onSubmit { commitServerPortDraft() }
             }
 
             Section("HIT Web 登录") {
@@ -424,13 +441,9 @@ struct NulConnectSettingsView: View {
             }
 
             Section("本地代理") {
-                PortTextField("监听端口", port: Binding(
-                    get: { model.profile.localProxyPort },
-                    set: { newValue in
-                        model.replaceProfile { $0.localProxyPort = newValue }
-                    }
-                ))
-                .disabled(model.isProxyRunning || model.isProxyBusy || model.isTunnelRunning || model.isTunnelBusy)
+                PortTextField("监听端口", text: $localProxyPortDraft)
+                    .onSubmit { commitLocalProxyPortDraft() }
+                    .disabled(model.isProxyRunning || model.isProxyBusy || model.isTunnelRunning || model.isTunnelBusy)
 
                 HStack(spacing: 12) {
                     Text("代理地址")
@@ -445,12 +458,8 @@ struct NulConnectSettingsView: View {
             }
 
             Section("客户端参数") {
-                TextField("User-Agent", text: Binding(
-                    get: { model.profile.userAgent },
-                    set: { newValue in
-                        model.replaceProfile { $0.userAgent = newValue }
-                    }
-                ))
+                TextField("User-Agent", text: $userAgentDraft)
+                    .onSubmit { commitUserAgentDraft() }
 
                 Toggle("允许不安全 TLS", isOn: Binding(
                     get: { model.profile.allowInsecureTLS },
@@ -569,6 +578,60 @@ struct NulConnectSettingsView: View {
         return build?.isEmpty == false ? build ?? "未知" : "未知"
     }
 
+    private func syncPortalDrafts() {
+        let serverHost = model.profile.serverHost
+        let serverPort = String(model.profile.serverPort)
+        if serverHostDraft != serverHost {
+            serverHostDraft = serverHost
+        }
+        if serverPortDraft != serverPort {
+            serverPortDraft = serverPort
+        }
+    }
+
+    private func syncLocalProxyDraft() {
+        let localProxyPort = String(model.profile.localProxyPort)
+        if localProxyPortDraft != localProxyPort {
+            localProxyPortDraft = localProxyPort
+        }
+    }
+
+    private func syncUserAgentDraft() {
+        let userAgent = model.profile.userAgent
+        if userAgentDraft != userAgent {
+            userAgentDraft = userAgent
+        }
+    }
+
+    private func commitDrafts() {
+        commitServerHostDraft()
+        commitServerPortDraft()
+        commitLocalProxyPortDraft()
+        commitUserAgentDraft()
+    }
+
+    private func commitServerHostDraft() {
+        model.replaceProfile { $0.serverHost = serverHostDraft }
+    }
+
+    private func commitServerPortDraft() {
+        guard let parsed = UInt16(serverPortDraft.filter(\.isNumber)), parsed > 0 else {
+            return
+        }
+        model.replaceProfile { $0.serverPort = parsed }
+    }
+
+    private func commitLocalProxyPortDraft() {
+        guard let parsed = UInt16(localProxyPortDraft.filter(\.isNumber)), parsed > 0 else {
+            return
+        }
+        model.replaceProfile { $0.localProxyPort = parsed }
+    }
+
+    private func commitUserAgentDraft() {
+        model.replaceProfile { $0.userAgent = userAgentDraft }
+    }
+
     private var loginDomainSelection: Binding<String> {
         Binding(
             get: { model.profile.loginDomain },
@@ -683,24 +746,16 @@ struct NulConnectMenuBarContent: View {
 
 private struct PortTextField: View {
     let title: String
-    @Binding var port: UInt16
+    @Binding var text: String
 
-    init(_ title: String, port: Binding<UInt16>) {
+    init(_ title: String, text: Binding<String>) {
         self.title = title
-        self._port = port
+        self._text = text
     }
 
     var body: some View {
-        TextField(title, text: Binding(
-            get: { String(port) },
-            set: { newValue in
-                let digits = newValue.filter(\.isNumber)
-                guard let parsed = UInt16(digits), parsed > 0 else {
-                    return
-                }
-                port = parsed
-            }
-        ))
+        TextField(title, text: $text)
+            .autocorrectionDisabled()
     }
 }
 

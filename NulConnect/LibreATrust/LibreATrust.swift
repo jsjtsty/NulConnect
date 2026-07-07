@@ -73,7 +73,7 @@ struct ATRAuthMethod: Sendable, Identifiable {
     var loginURL: String
 }
 
-struct ATRClientConfiguration: Sendable {
+struct ATRClientConfiguration: Sendable, Codable {
     var serverHost: String
     var serverPort: UInt16
     var userAgent: String
