@@ -310,7 +310,6 @@ struct NulConnectSettingsView: View {
     private var helperSettings: some View {
         Form {
             Section("特权组件") {
-                LabeledContent("安装状态", value: model.isHelperInstalled ? "已安装" : "未安装")
                 LabeledContent("已安装版本", value: model.helperVersionText)
                 LabeledContent("内置版本", value: model.bundledHelperVersionText)
 

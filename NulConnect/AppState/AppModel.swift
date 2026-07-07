@@ -39,6 +39,7 @@ final class AppModel: ObservableObject {
     private var proxyTask: Task<Void, Never>?
     private var tunnelTask: Task<Void, Never>?
     private var sessionKeepAliveTask: Task<Void, Never>?
+    private var helperVersionsLoaded = false
     private var storedSessionMaterial: ATRSessionMaterial?
     private var suppressProfilePersistence = false
 
@@ -154,7 +155,9 @@ final class AppModel: ObservableObject {
         helperActivityState.isBusy
     }
 
-    func refreshHelperVersion() {
+    func refreshHelperVersion(force: Bool = false) {
+        guard force || !helperVersionsLoaded else { return }
+        helperVersionsLoaded = true
         helperVersionText = isHelperInstalled ? "读取中" : "未安装"
         bundledHelperVersionText = "读取中"
         Task {
@@ -411,7 +414,7 @@ final class AppModel: ObservableObject {
                 await MainActor.run {
                     self.bannerMessage = "特权组件已卸载"
                     self.lastPersistenceErrorMessage = nil
-                    self.refreshHelperVersion()
+                    self.refreshHelperVersion(force: true)
                 }
             } catch {
                 await MainActor.run {
@@ -444,7 +447,7 @@ final class AppModel: ObservableObject {
         guard needsInstallOrUpgrade else {
             await MainActor.run {
                 self.reportHelperActivity(.succeeded(message: "特权组件已是最新"))
-                self.refreshHelperVersion()
+                self.refreshHelperVersion(force: true)
             }
             return
         }
@@ -464,7 +467,7 @@ final class AppModel: ObservableObject {
             }
             await MainActor.run {
                 self.reportHelperActivity(.succeeded(message: "特权组件已准备就绪"))
-                self.refreshHelperVersion()
+                self.refreshHelperVersion(force: true)
             }
         } catch {
             await MainActor.run {
