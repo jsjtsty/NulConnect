@@ -67,7 +67,7 @@ nonisolated final class NulConnectSystemProxyManager: @unchecked Sendable {
         helperActivityReporter: NulConnectHelperClient.ActivityReporter? = nil
     ) async throws -> Int {
         print("[NulConnect][SystemProxy] enable: endpoint=\(endpoint.host):\(endpoint.port), server=\(serverHost)")
-        let helperRequiresInstallOrUpgrade = try helperClient.requiresInstallOrUpgrade()
+        let helperRequiresInstallOrUpgrade = try await helperClient.requiresInstallOrUpgrade()
         do {
             try await helperClient.ensureInstalledOrUpToDate(reporter: helperActivityReporter)
             let count = try await helperClient.setSystemProxy(endpoint: endpoint, serverHost: serverHost)

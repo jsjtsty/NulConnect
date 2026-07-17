@@ -443,7 +443,7 @@ final class AppModel: ObservableObject {
             self.lastPersistenceErrorMessage = nil
         }
 
-        let needsInstallOrUpgrade = try helperClient.requiresInstallOrUpgrade()
+        let needsInstallOrUpgrade = try await helperClient.requiresInstallOrUpgrade()
         guard needsInstallOrUpgrade else {
             await MainActor.run {
                 self.reportHelperActivity(.succeeded(message: "特权组件已是最新"))

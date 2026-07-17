@@ -32,7 +32,7 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
         helperActivityReporter: NulConnectHelperClient.ActivityReporter? = nil
     ) async throws {
         NulConnectDiagnostics.log("[NulConnect][Tunnel] start: server=\(configuration.clientConfiguration.serverHost):\(configuration.clientConfiguration.serverPort), dns=\(configuration.dnsAddress), mtu=\(configuration.mtu), setupRoutes=\(configuration.setupRoutes), managedRoutes=\(configuration.managedRouteCIDRs.count) [\(configuration.managedRouteCIDRs.prefix(12).joined(separator: ", "))]")
-        let helperRequiresInstallOrUpgrade = try helperClient.requiresInstallOrUpgrade()
+        let helperRequiresInstallOrUpgrade = try await helperClient.requiresInstallOrUpgrade()
         do {
             try await helperClient.ensureInstalledOrUpToDate(reporter: helperActivityReporter)
             let helperConfiguration = Self.makeHelperConfiguration(configuration)

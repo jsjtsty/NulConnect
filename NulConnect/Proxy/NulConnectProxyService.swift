@@ -38,7 +38,7 @@ final class NulConnectProxyService {
         session: ATRSessionMaterial?,
         resource: ATRResourceSnapshot?,
         listenHost: String = "127.0.0.1",
-        listenPort: UInt16 = 1080
+        listenPort: UInt16 = 1920
     ) async throws {
         guard let session else {
             throw NulConnectProxyServiceError.missingSession

@@ -443,17 +443,6 @@ struct NulConnectSettingsView: View {
                 PortTextField("监听端口", text: $localProxyPortDraft)
                     .onSubmit { commitLocalProxyPortDraft() }
                     .disabled(model.isProxyRunning || model.isProxyBusy || model.isTunnelRunning || model.isTunnelBusy)
-
-                HStack(spacing: 12) {
-                    Text("代理地址")
-
-                    Spacer(minLength: 12)
-
-                    Text(model.proxyEndpointText)
-                        .foregroundStyle(.primary)
-                }
-                // .font(.subheadline)
-                .help("系统代理会指向这个本地代理地址，启用时需要管理员权限")
             }
 
             Section("客户端参数") {
@@ -544,13 +533,26 @@ struct NulConnectSettingsView: View {
     private var aboutSettings: some View {
         Form {
             Section("关于 NulConnect") {
-                LabeledContent("版本号", value: appVersionText)
-                LabeledContent("构建版本号", value: appBuildText)
-                LabeledContent("版权信息", value: "Copyright (C) NulStudio 2014-2026")
-                LabeledContent("许可证", value: "GNU Affero General Public Licence v3.0")
+                LabeledContent("版本号") {
+                    Text(appVersionText)
+                        .textSelection(.disabled)
+                }
+                LabeledContent("构建版本号") {
+                    Text(appBuildText)
+                        .textSelection(.disabled)
+                }
+                LabeledContent("版权信息") {
+                    Text("Copyright (C) NulStudio 2014-2026")
+                        .textSelection(.disabled)
+                }
+                LabeledContent("许可证") {
+                    Text("GNU Affero General Public Licence v3.0")
+                        .textSelection(.disabled)
+                }
             }
         }
         .formStyle(.grouped)
+        .textSelection(.disabled)
     }
 
     private var sessionSummaryText: String {

@@ -20,7 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 XCODE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUST_ROOT="/Volumes/T7S-Projects/Projects/Rust"
 LIBREATRUST_DIR="$RUST_ROOT/libreatrust"
-TUN_DIR="$RUST_ROOT/nulconnect-tun"
+HELPER_DIR="$RUST_ROOT/nulconnect-helper"
 VENDOR_DIR="$XCODE_ROOT/Vendor/libreatrust"
 
 if [[ ! -d "$LIBREATRUST_DIR" ]]; then
@@ -28,8 +28,8 @@ if [[ ! -d "$LIBREATRUST_DIR" ]]; then
   exit 1
 fi
 
-if [[ ! -d "$TUN_DIR" ]]; then
-  echo "error: missing nulconnect-tun directory: $TUN_DIR" >&2
+if [[ ! -d "$HELPER_DIR" ]]; then
+  echo "error: missing helper source directory: $HELPER_DIR" >&2
   exit 1
 fi
 
@@ -42,12 +42,12 @@ echo "building libreatrust..."
 cargo build --release --manifest-path "$LIBREATRUST_DIR/Cargo.toml"
 
 echo "building nulconnect-helper..."
-cargo build --release --manifest-path "$TUN_DIR/Cargo.toml" --bin nulconnect-helper
+cargo build --release --manifest-path "$HELPER_DIR/Cargo.toml" --bin nulconnect-helper
 
 cp "$LIBREATRUST_DIR/target/release/libreatrust.dylib" "$VENDOR_DIR/dynamic/libreatrust.dylib"
 cp "$LIBREATRUST_DIR/target/release/libreatrust.a" "$VENDOR_DIR/static/libreatrust.a"
 cp "$LIBREATRUST_DIR/include/libreatrust.h" "$VENDOR_DIR/include/libreatrust.h"
-cp "$TUN_DIR/target/release/nulconnect-helper" "$VENDOR_DIR/dynamic/nulconnect-helper"
+cp "$HELPER_DIR/target/release/nulconnect-helper" "$VENDOR_DIR/dynamic/nulconnect-helper"
 
 echo "updated:"
 echo "  $VENDOR_DIR/dynamic/libreatrust.dylib"

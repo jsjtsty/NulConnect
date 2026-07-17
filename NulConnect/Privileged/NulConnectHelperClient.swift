@@ -81,7 +81,7 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
     }
 
     func ensureInstalledOrUpToDate(reporter: ActivityReporter? = nil) async throws {
-        let needs = try needsInstallOrUpgrade()
+        let needs = try await needsInstallOrUpgrade()
         print("[NulConnect][Helper] ensureInstalledOrUpToDate: needs=\(needs)")
         if needs {
             try await installOrUpgrade(reporter: reporter)
@@ -90,8 +90,8 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
         }
     }
 
-    func requiresInstallOrUpgrade() throws -> Bool {
-        let needs = try needsInstallOrUpgrade()
+    func requiresInstallOrUpgrade() async throws -> Bool {
+        let needs = try await needsInstallOrUpgrade()
         print("[NulConnect][Helper] requiresInstallOrUpgrade: needs=\(needs)")
         return needs
     }
@@ -152,62 +152,33 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
         print("[NulConnect][Helper] startInstalledHelper: completed")
     }
 
-    private func needsInstallOrUpgrade() throws -> Bool {
+    private func needsInstallOrUpgrade() async throws -> Bool {
         guard isInstalled() else {
             print("[NulConnect][Helper] needsInstallOrUpgrade: not installed")
             return true
         }
-        let bundled = try Data(contentsOf: bundledHelperURL())
-        guard let installed = try? Data(contentsOf: URL(fileURLWithPath: Self.installedHelperPath)) else {
-            print("[NulConnect][Helper] needsInstallOrUpgrade: cannot read installed binary")
-            return true
-        }
-        if bundled != installed {
-            print("[NulConnect][Helper] needsInstallOrUpgrade: binary mismatch (bundled=\(bundled.count) bytes, installed=\(installed.count) bytes)")
-            return true
-        }
+        async let installedVersion = installedVersionString()
+        async let bundledVersion = bundledVersionString()
+        let installed = await installedVersion?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bundled = await bundledVersion?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard let currentPlist = try? Data(contentsOf: URL(fileURLWithPath: Self.launchDaemonPath)),
-              let currentObject = try? PropertyListSerialization.propertyList(from: currentPlist, options: [], format: nil) as? [String: Any] else {
-            print("[NulConnect][Helper] needsInstallOrUpgrade: cannot read current plist")
+        guard let installed, !installed.isEmpty else {
+            print("[NulConnect][Helper] needsInstallOrUpgrade: installed version unavailable")
             return true
         }
-
-        let expectedPlist = launchDaemonPlistObject()
-        guard let expectedLabel = expectedPlist["Label"] as? String,
-              let expectedProgramArguments = expectedPlist["ProgramArguments"] as? [String],
-              let expectedGroupName = expectedPlist["GroupName"] as? String,
-              let expectedRunAtLoad = expectedPlist["RunAtLoad"] as? Bool,
-              let expectedKeepAlive = expectedPlist["KeepAlive"] as? Bool,
-              let expectedStdout = expectedPlist["StandardOutPath"] as? String,
-              let expectedStderr = expectedPlist["StandardErrorPath"] as? String else {
-            print("[NulConnect][Helper] needsInstallOrUpgrade: expected plist malformed")
+        guard let bundled, !bundled.isEmpty else {
+            print("[NulConnect][Helper] needsInstallOrUpgrade: bundled version unavailable")
             return true
         }
 
-        let currentLabel = currentObject["Label"] as? String
-        let currentProgramArguments = currentObject["ProgramArguments"] as? [String]
-        let currentGroupName = currentObject["GroupName"] as? String
-        let currentRunAtLoad = currentObject["RunAtLoad"] as? Bool
-        let currentKeepAlive = currentObject["KeepAlive"] as? Bool
-        let currentStdout = currentObject["StandardOutPath"] as? String
-        let currentStderr = currentObject["StandardErrorPath"] as? String
-
-        let plistDiffers =
-            currentLabel != expectedLabel ||
-            currentProgramArguments != expectedProgramArguments ||
-            currentGroupName != expectedGroupName ||
-            currentRunAtLoad != expectedRunAtLoad ||
-            currentKeepAlive != expectedKeepAlive ||
-            currentStdout != expectedStdout ||
-            currentStderr != expectedStderr
-
-        if plistDiffers {
-            print("[NulConnect][Helper] needsInstallOrUpgrade: plist differs (label=\(currentLabel ?? "nil") expected=\(expectedLabel), argsMatch=\(currentProgramArguments == expectedProgramArguments), group=\(currentGroupName ?? "nil"), runAtLoad=\(currentRunAtLoad.map(String.init) ?? "nil"), keepAlive=\(currentKeepAlive.map(String.init) ?? "nil"), stdout=\(currentStdout ?? "nil"), stderr=\(currentStderr ?? "nil"))")
-        } else {
-            print("[NulConnect][Helper] needsInstallOrUpgrade: up to date")
+        guard let comparison = Self.compareVersionStrings(installed, bundled) else {
+            print("[NulConnect][Helper] needsInstallOrUpgrade: version compare failed (installed=\(installed), bundled=\(bundled))")
+            return true
         }
-        return plistDiffers
+
+        let needs = comparison == .orderedAscending
+        print("[NulConnect][Helper] needsInstallOrUpgrade: version compare installed=\(installed) bundled=\(bundled) needs=\(needs)")
+        return needs
     }
 
     func uninstall() throws {
@@ -515,6 +486,40 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             throw NulConnectHelperClientError.commandFailed("无法生成 LaunchDaemon plist")
         }
         return string
+    }
+
+    private static func compareVersionStrings(_ lhs: String, _ rhs: String) -> ComparisonResult? {
+        let left = normalizedVersionParts(lhs)
+        let right = normalizedVersionParts(rhs)
+
+        guard !left.numeric.isEmpty || !right.numeric.isEmpty else {
+            return nil
+        }
+
+        let numericComparison = left.numeric.compare(right.numeric, options: [.numeric])
+        if numericComparison != .orderedSame {
+            return numericComparison
+        }
+
+        switch (left.suffix.isEmpty, right.suffix.isEmpty) {
+        case (true, true):
+            return .orderedSame
+        case (true, false):
+            return .orderedDescending
+        case (false, true):
+            return .orderedAscending
+        case (false, false):
+            return left.suffix.compare(right.suffix, options: [.numeric])
+        }
+    }
+
+    private static func normalizedVersionParts(_ version: String) -> (numeric: String, suffix: String) {
+        let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = trimmed.hasPrefix("v") || trimmed.hasPrefix("V") ? String(trimmed.dropFirst()) : trimmed
+        let splitIndex = body.firstIndex { !$0.isNumber && $0 != "." } ?? body.endIndex
+        let numeric = String(body[..<splitIndex])
+        let suffix = String(body[splitIndex...])
+        return (numeric: numeric, suffix: suffix)
     }
 }
 

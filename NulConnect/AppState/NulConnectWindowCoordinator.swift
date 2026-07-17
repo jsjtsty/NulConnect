@@ -12,13 +12,14 @@ enum NulConnectWindowRole: String, CaseIterable, Sendable {
 }
 
 @MainActor
-final class NulConnectWindowCoordinator: ObservableObject {
+final class NulConnectWindowCoordinator: NSObject, ObservableObject, NSWindowDelegate {
     let objectWillChange = ObservableObjectPublisher()
 
     private var notificationTokens: [NSObjectProtocol] = []
     private let managedWindowIdentifiers = Set(NulConnectWindowRole.allCases.map(\.windowIdentifier))
 
-    init() {
+    override init() {
+        super.init()
         observeWindowVisibility(NSWindow.willCloseNotification)
         observeWindowVisibility(NSWindow.didMiniaturizeNotification)
         observeWindowVisibility(NSWindow.didDeminiaturizeNotification)
@@ -34,6 +35,11 @@ final class NulConnectWindowCoordinator: ObservableObject {
         window.identifier = role.windowIdentifier
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.collectionBehavior.insert(.fullScreenAuxiliary)
+        if role == .main {
+            window.delegate = self
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = false
+            window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
+        }
         scheduleDockPolicyUpdate(afterNanoseconds: 0, allowsAccessoryPolicy: false)
         scheduleDockPolicyUpdate(afterNanoseconds: 150_000_000, allowsAccessoryPolicy: false)
         if role == .settings {
@@ -133,6 +139,19 @@ final class NulConnectWindowCoordinator: ObservableObject {
             return false
         }
         return managedWindowIdentifiers.contains(identifier)
+    }
+
+    func windowWillMiniaturize(_ notification: Notification) {
+        guard let sender = notification.object as? NSWindow,
+              sender.identifier == NulConnectWindowRole.main.windowIdentifier else {
+            return
+        }
+
+        DispatchQueue.main.async {
+            if sender.isMiniaturized {
+                sender.deminiaturize(nil)
+            }
+        }
     }
 }
 
