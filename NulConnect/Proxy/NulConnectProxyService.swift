@@ -30,6 +30,7 @@ final class NulConnectProxyService {
     private let listenHost: String
     private let listenPort: UInt16
     private var service: ATRProxyService?
+    private var keepAlive: ATRKeepAliveService?
     private var eventMonitorTask: Task<Void, Never>?
     private(set) var endpoint: NulConnectProxyEndpoint?
 
@@ -85,9 +86,11 @@ final class NulConnectProxyService {
         let atrEndpoint = try service.endpoint()
         let endpoint = NulConnectProxyEndpoint(host: atrEndpoint.host, port: atrEndpoint.port)
         self.service = service
+        let keepAlive = try client.startKeepAlive()
+        self.keepAlive = keepAlive
         self.endpoint = endpoint
         NulConnectDiagnostics.log("[NulConnect][Proxy] start: ready endpoint=\(endpoint.host):\(endpoint.port)")
-        startEventMonitor(service)
+        startEventMonitor(service, keepAlive: keepAlive)
         return endpoint
     }
 
@@ -99,6 +102,8 @@ final class NulConnectProxyService {
         }
         eventMonitorTask?.cancel()
         eventMonitorTask = nil
+        try? keepAlive?.stop()
+        keepAlive = nil
         try? service?.stop()
         service = nil
         endpoint = nil
@@ -124,11 +129,12 @@ final class NulConnectProxyService {
         }
     }
 
-    private func startEventMonitor(_ service: ATRProxyService) {
+    private func startEventMonitor(_ service: ATRProxyService, keepAlive: ATRKeepAliveService) {
         eventMonitorTask?.cancel()
         let onSessionInvalidated = onSessionInvalidated
-        eventMonitorTask = Task.detached(priority: .utility) { [service, onSessionInvalidated] in
+        eventMonitorTask = Task.detached(priority: .utility) { [service, keepAlive, onSessionInvalidated] in
             var pollCount = 0
+            var reportedKeepAliveError: String?
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(1))
@@ -138,6 +144,22 @@ final class NulConnectProxyService {
                         let stats = try service.stats()
                         let lastEvent = stats.lastEvent.map { String(describing: $0) } ?? "nil"
                         NulConnectDiagnostics.log("[NulConnect][Proxy] stats: active=\(stats.activeConnections) total=\(stats.totalConnections) lastError=\(stats.lastError ?? "nil") lastEvent=\(lastEvent)")
+                    }
+                    if pollCount % 30 == 0 {
+                        let status = try keepAlive.status()
+                        if let message = status.lastError, message != reportedKeepAliveError {
+                            reportedKeepAliveError = message
+                            NulConnectDiagnostics.log("[NulConnect][Proxy] keep-alive failed: \(message)")
+                            if Self.isSessionInvalidationMessage(message) {
+                                await MainActor.run {
+                                    onSessionInvalidated?(
+                                        NulConnectProxyServiceError.sessionExpired(message)
+                                    )
+                                }
+                            }
+                        } else if status.lastError == nil {
+                            reportedKeepAliveError = nil
+                        }
                     }
                     guard let event = try service.takeEvent() else {
                         continue
@@ -160,5 +182,12 @@ final class NulConnectProxyService {
                 }
             }
         }
+    }
+
+    private nonisolated static func isSessionInvalidationMessage(_ message: String) -> Bool {
+        let normalized = message.lowercased()
+        return normalized.contains("invalid sid")
+            || normalized.contains("not logged in")
+            || normalized.contains("unauthorized")
     }
 }

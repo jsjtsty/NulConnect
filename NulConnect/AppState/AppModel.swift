@@ -38,7 +38,9 @@ final class AppModel: ObservableObject {
     private var tunnelProxyService: NulConnectProxyService?
     private var proxyTask: Task<Void, Never>?
     private var tunnelTask: Task<Void, Never>?
+    private var tunnelHealthTask: Task<Void, Never>?
     private var sessionKeepAliveTask: Task<Void, Never>?
+    private var isRecoveringTunnelSession = false
     private var helperVersionsLoaded = false
     private var storedSessionMaterial: ATRSessionMaterial?
     private var suppressProfilePersistence = false
@@ -642,7 +644,7 @@ final class AppModel: ObservableObject {
         sessionKeepAliveTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
+                    try await Task.sleep(nanoseconds: 15 * 60 * 1_000_000_000)
                     try Task.checkCancellation()
                     await self?.performSessionKeepAlive()
                 } catch is CancellationError {
@@ -1122,12 +1124,16 @@ final class AppModel: ObservableObject {
                     self.bannerMessage = "TUN 模式已启动"
                     self.lastPersistenceErrorMessage = nil
                     self.startSessionKeepAlive()
+                    self.startTunnelHealthMonitor()
+                    self.isRecoveringTunnelSession = false
                 }
                 await NulConnectDiagnostics.logNetworkSnapshot(reason: "tun-running")
             } catch {
                 NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: failed error=\(error.localizedDescription)")
                 try? await tunnelManager.stop()
                 await MainActor.run {
+                    self.stopTunnelHealthMonitor()
+                    self.isRecoveringTunnelSession = false
                     self.tunnelProxyService?.stop()
                     self.tunnelProxyService = nil
                     self.tunnelState = .failed(message: error.localizedDescription)
@@ -1145,6 +1151,7 @@ final class AppModel: ObservableObject {
 
     func prepareForApplicationTermination() async {
         stopSessionKeepAlive()
+        stopTunnelHealthMonitor()
         tunnelTask?.cancel()
         proxyTask?.cancel()
 
@@ -1186,6 +1193,8 @@ final class AppModel: ObservableObject {
         }
 
         tunnelState = .stopping
+        stopTunnelHealthMonitor()
+        isRecoveringTunnelSession = false
         connectionState = NulConnectConnectionState(
             phase: .disconnecting,
             message: "正在停止 TUN 模式",
@@ -1230,6 +1239,7 @@ final class AppModel: ObservableObject {
         let wasTunnelMode = tunnelProxyService != nil || isTunnelRunning || isTunnelBusy
         if wasTunnelMode {
             stopSessionKeepAlive()
+            stopTunnelHealthMonitor()
             tunnelProxyService?.stop()
             tunnelProxyService = nil
             tunnelTask?.cancel()
@@ -1319,7 +1329,9 @@ final class AppModel: ObservableObject {
 
     private nonisolated static func isStoredSessionInvalidError(_ error: Error) -> Bool {
         let normalized = error.localizedDescription.lowercased()
-        if normalized.contains("stored session is not logged in") || normalized.contains("not logged in") {
+        if normalized.contains("stored session is not logged in")
+            || normalized.contains("not logged in")
+            || normalized.contains("invalid sid") {
             return true
         }
 
@@ -1336,6 +1348,7 @@ final class AppModel: ObservableObject {
 
     private func failProxySessionInvalidated(_ error: Error) {
         stopSessionKeepAlive()
+        stopTunnelHealthMonitor()
         try? sessionVault.clear()
         try? resourceStore.delete()
         storedSessionMaterial = nil
@@ -1351,6 +1364,68 @@ final class AppModel: ObservableObject {
         loginState = .failed(message: "登录会话已失效，请重新登录")
         bannerMessage = "登录会话已失效，请重新登录"
         lastPersistenceErrorMessage = error.localizedDescription
+    }
+
+    private func startTunnelHealthMonitor() {
+        stopTunnelHealthMonitor()
+        guard let tunnelManager else { return }
+        tunnelHealthTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                    try Task.checkCancellation()
+                    guard let status = try await tunnelManager.runtimeStatus() else {
+                        continue
+                    }
+                    guard status.status == "failed" || status.status == "stopped" else {
+                        continue
+                    }
+                    await self?.handleTunnelRuntimeStopped(status)
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    NulConnectDiagnostics.log(
+                        "[NulConnect][Tunnel] health monitor failed: \(error.localizedDescription)"
+                    )
+                }
+            }
+        }
+    }
+
+    private func stopTunnelHealthMonitor() {
+        tunnelHealthTask?.cancel()
+        tunnelHealthTask = nil
+    }
+
+    private func handleTunnelRuntimeStopped(_ status: NulConnectTunnelRuntimeStatus) async {
+        stopTunnelHealthMonitor()
+        stopSessionKeepAlive()
+        let message = status.message ?? "TUN 特权组件已停止"
+        let error = NulConnectTunnelManagerError.helperFailed(message)
+
+        if Self.isStoredSessionInvalidError(error), !isRecoveringTunnelSession {
+            isRecoveringTunnelSession = true
+            tunnelState = .stopped
+            connectionState = NulConnectConnectionState(
+                phase: .connecting,
+                message: "登录会话已失效，正在恢复 TUN",
+                updatedAt: .now
+            )
+            bannerMessage = "正在恢复登录会话"
+            startTunnelMode()
+            return
+        }
+
+        isRecoveringTunnelSession = false
+        tunnelState = .failed(message: message)
+        connectionState = NulConnectConnectionState(
+            phase: .failed,
+            message: message,
+            updatedAt: .now
+        )
+        bannerMessage = "TUN 运行失败: \(message)"
+        lastPersistenceErrorMessage = message
     }
 
     private func stopAllNetworkModes() async {

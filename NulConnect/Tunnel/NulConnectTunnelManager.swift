@@ -18,6 +18,11 @@ nonisolated enum NulConnectTunnelManagerError: LocalizedError {
     }
 }
 
+nonisolated struct NulConnectTunnelRuntimeStatus: Sendable {
+    var status: String
+    var message: String?
+}
+
 nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
     private let stateDirectory: URL
     private let helperClient = NulConnectHelperClient()
@@ -95,6 +100,24 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
         }
         let data = try Data(contentsOf: stateURL)
         return try makeTunnelJSONDecoder().decode(NulConnectTunHelperState.self, from: data)
+    }
+
+    func runtimeStatus() async throws -> NulConnectTunnelRuntimeStatus? {
+        guard helperClient.isRunning() else {
+            return NulConnectTunnelRuntimeStatus(
+                status: "failed",
+                message: "TUN 特权组件已退出"
+            )
+        }
+        let response = try await helperClient.status()
+        guard let tun = response["tun"] as? [String: Any],
+              let status = tun["status"] as? String else {
+            throw NulConnectTunnelManagerError.helperStateUnavailable
+        }
+        return NulConnectTunnelRuntimeStatus(
+            status: status,
+            message: tun["message"] as? String
+        )
     }
 
     private func waitForPersistentHelperRunning() async throws {
