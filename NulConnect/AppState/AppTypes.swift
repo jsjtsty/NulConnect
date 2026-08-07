@@ -70,7 +70,7 @@ struct NulConnectProfile: Codable, Sendable, Equatable {
         loginDomain: "",
         preferredAuthType: nil,
         userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) aTrustTray/2.4.10.50 Chrome/83.0.4103.94 Electron/9.0.2 Safari/537.36 aTrustTray-Linux-Plat-Ubuntu-x64 SPCClientType",
-        allowInsecureTLS: true,
+        allowInsecureTLS: false,
         routeMode: .proxy,
         useSystemProxy: false,
         connectTimeoutMillis: 15_000,
@@ -160,9 +160,6 @@ struct NulConnectProfile: Codable, Sendable, Equatable {
         }
         if copy.userAgent == "NulConnect/1.0" || copy.userAgent.isEmpty {
             copy.userAgent = Self.default.userAgent
-        }
-        if !copy.allowInsecureTLS {
-            copy.allowInsecureTLS = true
         }
         return copy
     }

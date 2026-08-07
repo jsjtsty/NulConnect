@@ -66,9 +66,22 @@
 		27B8241F2FF8000000E51188 /* nulconnect-helper */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = "nulconnect-helper"; path = "Vendor/libreatrust/dynamic/nulconnect-helper"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		27B824212FF9000000E51188 /* Exceptions for "NulConnect" folder in "NulConnect" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 27B822F02FF5855900E51188 /* NulConnect */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		27B822F32FF5855900E51188 /* NulConnect */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				27B824212FF9000000E51188 /* Exceptions for "NulConnect" folder in "NulConnect" target */,
+			);
 			path = NulConnect;
 			sourceTree = "<group>";
 		};
@@ -393,10 +406,6 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-lreatrust",
-				);
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OBJC_BRIDGING_HEADER = "NulConnect-Bridging-Header.h";
@@ -441,6 +450,9 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 3F5CH9XJ2Z;
+				CLANG_COVERAGE_MAPPING = NO;
+				CLANG_ENABLE_CODE_COVERAGE = NO;
+				ENABLE_CODE_COVERAGE = NO;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -466,10 +478,6 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-lreatrust",
-				);
 				SDKROOT = macosx;
 				STRIP_INSTALLED_PRODUCT = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -487,7 +495,7 @@
 				CODE_SIGN_ENTITLEMENTS = NulConnect/NulConnect.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = 3F5CH9XJ2Z;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -503,7 +511,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.4.1;
+				MARKETING_VERSION = 0.4.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nulstudio.NulConnect;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -525,9 +533,12 @@
 				CODE_SIGN_ENTITLEMENTS = NulConnect/NulConnect.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = 3F5CH9XJ2Z;
 				ENABLE_APP_SANDBOX = NO;
+				CLANG_COVERAGE_MAPPING = NO;
+				CLANG_ENABLE_CODE_COVERAGE = NO;
+				ENABLE_CODE_COVERAGE = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
@@ -541,7 +552,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.4.1;
+				MARKETING_VERSION = 0.4.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.nulstudio.NulConnect;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

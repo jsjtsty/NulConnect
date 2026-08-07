@@ -2,61 +2,34 @@ import Foundation
 import Darwin
 
 nonisolated enum NulConnectDiagnostics {
-    private static let lock = NSLock()
-    private static let maximumLogSize: UInt64 = 5 * 1024 * 1024
-    static let logURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/NulConnect/NulConnect.log")
-
     static func log(_ message: String) {
+        #if DEBUG && NULCONNECT_ENABLE_LOGS
         print(message)
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        guard let data = "\(timestamp) \(message)\n".data(using: .utf8) else { return }
-
-        lock.lock()
-        defer { lock.unlock() }
-        do {
-            let directory = logURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true
-            )
-            rotateLogIfNeeded(adding: UInt64(data.count))
-            if !FileManager.default.fileExists(atPath: logURL.path) {
-                FileManager.default.createFile(atPath: logURL.path, contents: nil)
-            }
-            let handle = try FileHandle(forWritingTo: logURL)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            try handle.write(contentsOf: data)
-        } catch {
-            fputs("[NulConnect][Diagnostics] failed to write log: \(error)\n", stderr)
-        }
-    }
-
-    private static func rotateLogIfNeeded(adding bytes: UInt64) {
-        guard
-            let attributes = try? FileManager.default.attributesOfItem(atPath: logURL.path),
-            let size = attributes[.size] as? NSNumber,
-            size.uint64Value + bytes > maximumLogSize
-        else { return }
-
-        let previousURL = logURL.deletingPathExtension().appendingPathExtension("previous.log")
-        try? FileManager.default.removeItem(at: previousURL)
-        try? FileManager.default.moveItem(at: logURL, to: previousURL)
+        #else
+        _ = message
+        #endif
     }
 
     static func logCommand(label: String, executable: String, arguments: [String], timeoutSeconds: TimeInterval = 3) async {
+        #if DEBUG && NULCONNECT_ENABLE_LOGS
         let output = await runCommand(executable: executable, arguments: arguments, timeoutSeconds: timeoutSeconds)
         log("[NulConnect][Diagnostics] \(label):\n\(output)")
+        #else
+        _ = (label, executable, arguments, timeoutSeconds)
+        #endif
     }
 
     static func logNetworkSnapshot(reason: String) async {
+        #if DEBUG && NULCONNECT_ENABLE_LOGS
         log("[NulConnect][Diagnostics] network snapshot begin: \(reason)")
         await logCommand(label: "route default", executable: "/sbin/route", arguments: ["-n", "get", "default"])
         await logCommand(label: "route 198.18.0.1", executable: "/sbin/route", arguments: ["-n", "get", "198.18.0.1"])
         await logCommand(label: "netstat inet", executable: "/usr/sbin/netstat", arguments: ["-rn", "-f", "inet"])
         await logCommand(label: "dns", executable: "/usr/sbin/scutil", arguments: ["--dns"], timeoutSeconds: 5)
         log("[NulConnect][Diagnostics] network snapshot end: \(reason)")
+        #else
+        _ = reason
+        #endif
     }
 
     private static func runCommand(executable: String, arguments: [String], timeoutSeconds: TimeInterval) async -> String {

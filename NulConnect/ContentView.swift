@@ -253,21 +253,21 @@ struct NulConnectSettingsView: View {
             syncUserAgentDraft()
         }
         .onDisappear { commitDrafts() }
-        .onChange(of: model.effectiveRouteMode) { newValue in
+        .onChange(of: model.effectiveRouteMode) { _, newValue in
             if selectedRouteMode != newValue {
                 selectedRouteMode = newValue
             }
         }
-        .onChange(of: model.profile.serverHost) { _ in
+        .onChange(of: model.profile.serverHost) {
             syncPortalDrafts()
         }
-        .onChange(of: model.profile.serverPort) { _ in
+        .onChange(of: model.profile.serverPort) {
             syncPortalDrafts()
         }
-        .onChange(of: model.profile.localProxyPort) { _ in
+        .onChange(of: model.profile.localProxyPort) {
             syncLocalProxyDraft()
         }
-        .onChange(of: model.profile.userAgent) { _ in
+        .onChange(of: model.profile.userAgent) {
             syncUserAgentDraft()
         }
         .background(
@@ -356,22 +356,6 @@ struct NulConnectSettingsView: View {
             }
 
             Section("HIT Web 登录") {
-                Picker("登录域", selection: loginDomainSelection) {
-                    Text("自动").tag("")
-                    ForEach(loginDomainOptions, id: \.self) { domain in
-                        Text(domain).tag(domain)
-                    }
-                }
-                .pickerStyle(.menu)
-
-                Picker("首选认证", selection: preferredAuthTypeSelection) {
-                    Text("自动").tag("")
-                    ForEach(preferredAuthTypeOptions, id: \.authType) { method in
-                        Text(preferredAuthTypeDisplayName(for: method)).tag(method.authType)
-                    }
-                }
-                .pickerStyle(.menu)
-
                 SettingsActionRow(
                     title: "重新登录",
                     subtitle: "通过 HIT 统一身份认证重新登录到服务器。",
@@ -631,49 +615,6 @@ struct NulConnectSettingsView: View {
 
     private func commitUserAgentDraft() {
         model.replaceProfile { $0.userAgent = userAgentDraft }
-    }
-
-    private var loginDomainSelection: Binding<String> {
-        Binding(
-            get: { model.profile.loginDomain },
-            set: { newValue in
-                model.replaceProfile { $0.loginDomain = newValue }
-            }
-        )
-    }
-
-    private var preferredAuthTypeSelection: Binding<String> {
-        Binding(
-            get: { model.profile.preferredAuthType ?? "" },
-            set: { newValue in
-                model.replaceProfile { $0.preferredAuthType = newValue.isEmpty ? nil : newValue }
-            }
-        )
-    }
-
-    private var loginDomainOptions: [String] {
-        uniquePreservingOrder(model.availableLoginMethods.map(\.loginDomain))
-    }
-
-    private var preferredAuthTypeOptions: [ATRAuthMethod] {
-        uniquePreservingOrder(model.availableLoginMethods, key: \.authType)
-    }
-
-    private func preferredAuthTypeDisplayName(for method: ATRAuthMethod) -> String {
-        if method.authName.isEmpty {
-            return method.authType
-        }
-        return "\(method.authName) · \(method.authType)"
-    }
-
-    private func uniquePreservingOrder<T: Hashable>(_ values: [T]) -> [T] {
-        var seen = Set<T>()
-        return values.filter { seen.insert($0).inserted }
-    }
-
-    private func uniquePreservingOrder<T, Key: Hashable>(_ values: [T], key: KeyPath<T, Key>) -> [T] {
-        var seen = Set<Key>()
-        return values.filter { seen.insert($0[keyPath: key]).inserted }
     }
 }
 

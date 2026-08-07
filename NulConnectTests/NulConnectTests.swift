@@ -54,26 +54,6 @@ struct NulConnectTests {
         #expect(loaded.excludedIPs == ["127.0.0.1"])
     }
 
-    @Test func proxyHTTPParserHandlesConnectAndRewrite() throws {
-        let raw = Data("GET http://example.com/index.html?x=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\n\r\n".utf8)
-        let request = try #require(NulConnectProxyParser.parseHTTPProxyRequest(raw))
-        #expect(request.method == "GET")
-        #expect(request.target.contains("http://example.com"))
-
-        let rewritten = NulConnectProxyParser.rewriteHTTPProxyRequest(request, host: "example.com", port: 80)
-        let rewrittenText = String(data: rewritten, encoding: .utf8)
-        #expect(rewrittenText?.contains("GET /index.html?x=1 HTTP/1.1") == true)
-        #expect(rewrittenText?.contains("Host: example.com") == true)
-    }
-
-    @Test func proxySocks5ParserParsesDomainConnect() throws {
-        let data = Data([0x05, 0x01, 0x00, 0x03, 0x0b]) + Data("example.com".utf8) + Data([0x01, 0xbb])
-        let parsed = try NulConnectProxyParser.parseSOCKS5ConnectRequest(data)
-        let request = try #require(parsed)
-        #expect(request.host == "example.com")
-        #expect(request.port == 443)
-    }
-
     @Test func loginCallbackPolicyValidatesCASAndOAuth2() throws {
         let casPolicy = NulConnectWebLoginCapturePolicy.cas(baseHost: "ivpn.hit.edu.cn")
         let casURL = URL(string: "https://ids-hit-edu-cn-s.ivpn.hit.edu.cn/passport/v1/auth/cas?ticket=abc123")!

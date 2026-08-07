@@ -102,19 +102,3 @@ nonisolated struct NulConnectTunHelperSessionMaterial: Codable, Sendable {
         case cookies
     }
 }
-
-nonisolated struct NulConnectTunHelperState: Codable, Sendable {
-    var pid: Int32
-    var status: String
-    var message: String?
-    var updatedAtUnixSeconds: UInt64
-    var sessions: Int?
-
-    enum CodingKeys: String, CodingKey {
-        case pid
-        case status
-        case message
-        case updatedAtUnixSeconds = "updated_at_unix_secs"
-        case sessions
-    }
-}

@@ -52,13 +52,13 @@ final class NulConnectWindowCoordinator: NSObject, ObservableObject, NSWindowDel
     @discardableResult
     func activateForPresentation(role: NulConnectWindowRole? = nil) -> Bool {
         NSApp.setActivationPolicy(.regular)
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
         var didShowWindow = false
         if let role {
             didShowWindow = showVisibleWindow(role: role)
         }
         NSApp.activate(ignoringOtherApps: true)
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
         return didShowWindow
     }
 
@@ -87,7 +87,10 @@ final class NulConnectWindowCoordinator: NSObject, ObservableObject, NSWindowDel
             guard let window = notification.object as? NSWindow else {
                 return
             }
-            self?.handleWindowVisibilityChange(window)
+            Task { @MainActor [weak self, weak window] in
+                guard let window else { return }
+                self?.handleWindowVisibilityChange(window)
+            }
         }
         notificationTokens.append(token)
     }

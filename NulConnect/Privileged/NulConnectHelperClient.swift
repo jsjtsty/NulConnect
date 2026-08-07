@@ -1,5 +1,6 @@
 import Foundation
 import Dispatch
+import Darwin
 
 nonisolated enum NulConnectHelperClientError: LocalizedError {
     case helperNotInstalled
@@ -32,14 +33,26 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
     static let installedHelperPath = "/Library/PrivilegedHelperTools/NulConnect/nulconnect-helper"
     static let launchDaemonPath = "/Library/LaunchDaemons/com.nulstudio.NulConnect.helper.plist"
     static let stateDirectory = "/Library/Application Support/NulConnect"
-    static let logDirectory = "/Library/Logs/NulConnect"
-    static let helperLogPath = "/Library/Logs/NulConnect/helper.log"
     static let label = "com.nulstudio.NulConnect.helper"
 
     func isInstalled() -> Bool {
         let hasBinary = FileManager.default.fileExists(atPath: Self.installedHelperPath)
         let hasPlist = FileManager.default.fileExists(atPath: Self.launchDaemonPath)
         return hasBinary && hasPlist
+    }
+
+    private func isConfiguredForCurrentUser() -> Bool {
+        guard let data = FileManager.default.contents(atPath: Self.launchDaemonPath),
+              let plist = try? PropertyListSerialization.propertyList(
+                from: data,
+                options: [],
+                format: nil
+              ) as? [String: Any],
+              let arguments = plist["ProgramArguments"] as? [String],
+              arguments.count >= 6 else {
+            return false
+        }
+        return arguments[4] == String(getuid()) && arguments[5] == String(getgid())
     }
 
     func isRunning() -> Bool {
@@ -110,9 +123,7 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
         let script = """
         mkdir -p \(NulConnectPrivilegedExecutor.shellQuote(Self.installDirectory))
         mkdir -p \(NulConnectPrivilegedExecutor.shellQuote(Self.stateDirectory))
-        mkdir -p \(NulConnectPrivilegedExecutor.shellQuote(Self.logDirectory))
-        touch \(NulConnectPrivilegedExecutor.shellQuote(Self.helperLogPath))
-        chmod 666 \(NulConnectPrivilegedExecutor.shellQuote(Self.helperLogPath))
+        rm -f /Library/Logs/NulConnect/helper.log
         cp -f \(NulConnectPrivilegedExecutor.shellQuote(helperURL.path)) \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
         chown root:wheel \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
         chmod 755 \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
@@ -155,6 +166,10 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
     private func needsInstallOrUpgrade() async throws -> Bool {
         guard isInstalled() else {
             print("[NulConnect][Helper] needsInstallOrUpgrade: not installed")
+            return true
+        }
+        guard isConfiguredForCurrentUser() else {
+            print("[NulConnect][Helper] needsInstallOrUpgrade: helper belongs to another user or uses an obsolete launch configuration")
             return true
         }
         async let installedVersion = installedVersionString()
@@ -466,13 +481,15 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
                 Self.installedHelperPath,
                 "serve",
                 Self.socketPath,
-                Self.stateDirectory
+                Self.stateDirectory,
+                String(getuid()),
+                String(getgid())
             ],
             "GroupName": "staff",
             "RunAtLoad": true,
             "KeepAlive": true,
-            "StandardOutPath": Self.helperLogPath,
-            "StandardErrorPath": Self.helperLogPath
+            "StandardOutPath": "/dev/null",
+            "StandardErrorPath": "/dev/null"
         ]
     }
 
