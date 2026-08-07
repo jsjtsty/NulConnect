@@ -135,6 +135,7 @@ final class NulConnectProxyService {
         eventMonitorTask = Task.detached(priority: .utility) { [service, keepAlive, onSessionInvalidated] in
             var pollCount = 0
             var reportedKeepAliveError: String?
+            var reportedStats: String?
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(1))
@@ -143,7 +144,11 @@ final class NulConnectProxyService {
                     if pollCount % 2 == 0 {
                         let stats = try service.stats()
                         let lastEvent = stats.lastEvent.map { String(describing: $0) } ?? "nil"
-                        NulConnectDiagnostics.log("[NulConnect][Proxy] stats: active=\(stats.activeConnections) total=\(stats.totalConnections) lastError=\(stats.lastError ?? "nil") lastEvent=\(lastEvent)")
+                        let snapshot = "active=\(stats.activeConnections) total=\(stats.totalConnections) lastError=\(stats.lastError ?? "nil") lastEvent=\(lastEvent)"
+                        if snapshot != reportedStats || pollCount % 60 == 0 {
+                            reportedStats = snapshot
+                            NulConnectDiagnostics.log("[NulConnect][Proxy] stats: \(snapshot)")
+                        }
                     }
                     if pollCount % 30 == 0 {
                         let status = try keepAlive.status()
