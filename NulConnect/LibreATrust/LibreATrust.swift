@@ -126,18 +126,6 @@ struct ATRProxyServiceTrafficStats: Sendable {
     var managedDownloadBytes: UInt64
 }
 
-struct ATRKeepAliveConfiguration: Sendable {
-    var interval: UInt64
-    var url: String?
-
-    nonisolated static let `default` = ATRKeepAliveConfiguration(interval: 60_000, url: nil)
-}
-
-struct ATRKeepAliveStatus: Sendable {
-    var probeCount: UInt64
-    var lastError: String?
-}
-
 enum ATRProxyServiceEvent: Sendable {
     case error(String)
     case sessionInvalidated(String)
@@ -429,62 +417,9 @@ nonisolated final class ATRClient {
         }
     }
 
-    func startKeepAlive(configuration: ATRKeepAliveConfiguration = .default) throws -> ATRKeepAliveService {
-        try withRaw { raw in
-            try withOptionalCStringValue(configuration.url) { url in
-                var config = atr_keep_alive_config_t(interval_ms: configuration.interval, url: url)
-                var service: OpaquePointer?
-                try check(atr_client_start_keep_alive(raw, &config, &service))
-                guard let service else {
-                    throw LibreATrustError.internalError("keep-alive service is nil")
-                }
-                return ATRKeepAliveService(raw: service)
-            }
-        }
-    }
-
     private func withRaw<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
         guard let raw else {
             throw LibreATrustError.invalidState("client is released")
-        }
-        return try body(raw)
-    }
-}
-
-nonisolated final class ATRKeepAliveService {
-    private var raw: OpaquePointer?
-
-    init(raw: OpaquePointer) {
-        self.raw = raw
-    }
-
-    deinit {
-        if let raw {
-            atr_keep_alive_free(raw)
-        }
-    }
-
-    func stop() throws {
-        try withRaw { raw in
-            try check(atr_keep_alive_stop(raw))
-        }
-    }
-
-    func status() throws -> ATRKeepAliveStatus {
-        try withRaw { raw in
-            var status = atr_keep_alive_status_t(probe_count: 0, last_error: nil)
-            try check(atr_keep_alive_get_status(raw, &status))
-            defer { atr_keep_alive_status_free(&status) }
-            return ATRKeepAliveStatus(
-                probeCount: status.probe_count,
-                lastError: optionalCStringString(status.last_error)
-            )
-        }
-    }
-
-    private func withRaw<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
-        guard let raw else {
-            throw LibreATrustError.invalidState("keep-alive service is released")
         }
         return try body(raw)
     }
@@ -604,6 +539,18 @@ nonisolated final class ATRL3Tunnel {
     deinit {
         if let raw {
             atr_l3_tunnel_free(raw)
+        }
+    }
+
+    func sendHeartbeat() throws {
+        try withRaw { raw in
+            try check(atr_l3_tunnel_send_heartbeat(raw))
+        }
+    }
+
+    func close() throws {
+        try withRaw { raw in
+            try check(atr_l3_tunnel_close(raw))
         }
     }
 

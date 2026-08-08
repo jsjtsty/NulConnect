@@ -30,7 +30,7 @@ final class NulConnectProxyService {
     private let listenHost: String
     private let listenPort: UInt16
     private var service: ATRProxyService?
-    private var keepAlive: ATRKeepAliveService?
+    private var l3KeepAliveSession: ATRL3Tunnel?
     private var eventMonitorTask: Task<Void, Never>?
     private(set) var endpoint: NulConnectProxyEndpoint?
 
@@ -72,6 +72,11 @@ final class NulConnectProxyService {
             return endpoint
         }
 
+        let l3KeepAliveSession = try client.openL3()
+        try l3KeepAliveSession.sendHeartbeat()
+        self.l3KeepAliveSession = l3KeepAliveSession
+        NulConnectDiagnostics.log("[NulConnect][Proxy] dedicated L3 keep-alive session ready")
+
         NulConnectDiagnostics.log("[NulConnect][Proxy] start: listen=\(listenHost):\(listenPort) socks5=true http=true")
         let service = try client.startProxyService(
             configuration: ATRProxyServiceConfiguration(
@@ -86,11 +91,9 @@ final class NulConnectProxyService {
         let atrEndpoint = try service.endpoint()
         let endpoint = NulConnectProxyEndpoint(host: atrEndpoint.host, port: atrEndpoint.port)
         self.service = service
-        let keepAlive = try client.startKeepAlive()
-        self.keepAlive = keepAlive
         self.endpoint = endpoint
         NulConnectDiagnostics.log("[NulConnect][Proxy] start: ready endpoint=\(endpoint.host):\(endpoint.port)")
-        startEventMonitor(service, keepAlive: keepAlive)
+        startEventMonitor(service)
         return endpoint
     }
 
@@ -102,8 +105,9 @@ final class NulConnectProxyService {
         }
         eventMonitorTask?.cancel()
         eventMonitorTask = nil
-        try? keepAlive?.stop()
-        keepAlive = nil
+        try? l3KeepAliveSession?.close()
+        l3KeepAliveSession = nil
+        NulConnectDiagnostics.log("[NulConnect][Proxy] dedicated L3 keep-alive session stopped")
         try? service?.stop()
         service = nil
         endpoint = nil
@@ -142,12 +146,11 @@ final class NulConnectProxyService {
         )
     }
 
-    private func startEventMonitor(_ service: ATRProxyService, keepAlive: ATRKeepAliveService) {
+    private func startEventMonitor(_ service: ATRProxyService) {
         eventMonitorTask?.cancel()
         let onSessionInvalidated = onSessionInvalidated
-        eventMonitorTask = Task.detached(priority: .utility) { [service, keepAlive, onSessionInvalidated] in
+        eventMonitorTask = Task.detached(priority: .utility) { [service, onSessionInvalidated] in
             var pollCount = 0
-            var reportedKeepAliveError: String?
             var reportedStats: String?
             while !Task.isCancelled {
                 do {
@@ -161,25 +164,6 @@ final class NulConnectProxyService {
                         if snapshot != reportedStats || pollCount % 60 == 0 {
                             reportedStats = snapshot
                             NulConnectDiagnostics.log("[NulConnect][Proxy] stats: \(snapshot)")
-                        }
-                    }
-                    if pollCount % 30 == 0 {
-                        let status = try keepAlive.status()
-                        NulConnectDiagnostics.log(
-                            "[NulConnect][Proxy] keep-alive status: probes=\(status.probeCount) lastError=\(status.lastError ?? "nil")"
-                        )
-                        if let message = status.lastError, message != reportedKeepAliveError {
-                            reportedKeepAliveError = message
-                            NulConnectDiagnostics.log("[NulConnect][Proxy] keep-alive failed: \(message)")
-                            if Self.isSessionInvalidationMessage(message) {
-                                await MainActor.run {
-                                    onSessionInvalidated?(
-                                        NulConnectProxyServiceError.sessionExpired(message)
-                                    )
-                                }
-                            }
-                        } else if status.lastError == nil {
-                            reportedKeepAliveError = nil
                         }
                     }
                     guard let event = try service.takeEvent() else {
@@ -205,10 +189,4 @@ final class NulConnectProxyService {
         }
     }
 
-    private nonisolated static func isSessionInvalidationMessage(_ message: String) -> Bool {
-        let normalized = message.lowercased()
-        return normalized.contains("invalid sid")
-            || normalized.contains("not logged in")
-            || normalized.contains("unauthorized")
-    }
 }

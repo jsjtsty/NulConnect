@@ -42,7 +42,6 @@ final class AppModel: ObservableObject {
     private var proxyTask: Task<Void, Never>?
     private var tunnelTask: Task<Void, Never>?
     private var tunnelHealthTask: Task<Void, Never>?
-    private var sessionKeepAliveTask: Task<Void, Never>?
     private var trafficSamplingTask: Task<Void, Never>?
     private var pendingConnectionMode: NulConnectRouteMode?
     private var isRecoveringTunnelSession = false
@@ -692,55 +691,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func refreshStoredSessionOnly() async throws {
-        guard let storedSessionMaterial else {
-            throw NulConnectProxyServiceError.missingSession
-        }
-
-        let refreshedMaterial = try await authEngine.resumeSession(storedSessionMaterial, configuration: authConfiguration)
-        try sessionVault.save(refreshedMaterial)
-        self.storedSessionMaterial = refreshedMaterial
-        self.sessionSummary = NulConnectSessionSummary(material: refreshedMaterial)
-    }
-
-    private func startSessionKeepAlive() {
-        stopSessionKeepAlive()
-        sessionKeepAliveTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(nanoseconds: 15 * 60 * 1_000_000_000)
-                    try Task.checkCancellation()
-                    await self?.performSessionKeepAlive()
-                } catch is CancellationError {
-                    return
-                } catch {
-                    return
-                }
-            }
-        }
-    }
-
-    private func stopSessionKeepAlive() {
-        sessionKeepAliveTask?.cancel()
-        sessionKeepAliveTask = nil
-    }
-
-    private func performSessionKeepAlive() async {
-        guard isProxyRunning || isTunnelRunning else {
-            stopSessionKeepAlive()
-            return
-        }
-
-        do {
-            try await refreshStoredSessionOnly()
-        } catch {
-            print("[NulConnect][Login] session keepalive failed: \(error)")
-            if Self.isStoredSessionInvalidError(error) {
-                handleProxySessionInvalidated(error)
-            }
-        }
-    }
-
     private nonisolated static func resourcePreview(_ data: Data) -> String {
         String(decoding: data.prefix(600), as: UTF8.self)
             .replacingOccurrences(of: "\n", with: "\\n")
@@ -1070,7 +1020,6 @@ final class AppModel: ObservableObject {
                     )
                     self.bannerMessage = "代理模式已启动"
                     self.lastPersistenceErrorMessage = nil
-                    self.startSessionKeepAlive()
                 }
 
                 if profile.useSystemProxy {
@@ -1126,7 +1075,6 @@ final class AppModel: ObservableObject {
     }
 
     private func finishStoppingProxyMode() {
-        stopSessionKeepAlive()
         captureProxyTrafficBeforeStop()
         proxyService?.stop()
         proxyService = nil
@@ -1214,7 +1162,6 @@ final class AppModel: ObservableObject {
                     )
                     self.bannerMessage = "VPN 模式已启动"
                     self.lastPersistenceErrorMessage = nil
-                    self.startSessionKeepAlive()
                     self.startTunnelHealthMonitor()
                     self.isRecoveringTunnelSession = false
                 }
@@ -1244,7 +1191,6 @@ final class AppModel: ObservableObject {
     }
 
     func prepareForApplicationTermination() async {
-        stopSessionKeepAlive()
         stopTunnelHealthMonitor()
         tunnelTask?.cancel()
         proxyTask?.cancel()
@@ -1305,7 +1251,6 @@ final class AppModel: ObservableObject {
                 await self.captureTunnelTrafficBeforeStop()
                 try await self.tunnelManager?.stop()
                 await MainActor.run {
-                    self.stopSessionKeepAlive()
                     self.tunnelProxyService?.stop()
                     self.tunnelProxyService = nil
                     self.tunnelTask = nil
@@ -1337,7 +1282,6 @@ final class AppModel: ObservableObject {
         print("[NulConnect][Proxy] session invalidated: \(error)")
         let wasTunnelMode = tunnelProxyService != nil || isTunnelRunning || isTunnelBusy
         if wasTunnelMode {
-            stopSessionKeepAlive()
             stopTunnelHealthMonitor()
             tunnelProxyService?.stop()
             tunnelProxyService = nil
@@ -1352,7 +1296,6 @@ final class AppModel: ObservableObject {
             return
         }
 
-        stopSessionKeepAlive()
         captureProxyTrafficBeforeStop()
         proxyService?.stop()
         proxyService = nil
@@ -1402,7 +1345,6 @@ final class AppModel: ObservableObject {
                     )
                     self.bannerMessage = "登录会话已恢复"
                     self.lastPersistenceErrorMessage = nil
-                    self.startSessionKeepAlive()
                 }
             } catch {
                 await MainActor.run {
@@ -1414,7 +1356,6 @@ final class AppModel: ObservableObject {
     }
 
     private func invalidateStoredSession(message: String, error: Error) async {
-        stopSessionKeepAlive()
         await authEngine.reset()
         try? sessionVault.clear()
         try? resourceStore.delete()
@@ -1461,7 +1402,6 @@ final class AppModel: ObservableObject {
     }
 
     private func failProxySessionInvalidated(_ error: Error) {
-        stopSessionKeepAlive()
         stopTunnelHealthMonitor()
         try? sessionVault.clear()
         try? resourceStore.delete()
@@ -1514,7 +1454,6 @@ final class AppModel: ObservableObject {
 
     private func handleTunnelRuntimeStopped(_ status: NulConnectTunnelRuntimeStatus) async {
         stopTunnelHealthMonitor()
-        stopSessionKeepAlive()
         let message = status.message ?? "VPN 特权组件已停止"
         let error = NulConnectTunnelManagerError.helperFailed(message)
 
