@@ -24,6 +24,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var helperActivityState: NulConnectHelperActivityState = .idle
     @Published private(set) var helperVersionText: String = "未安装"
     @Published private(set) var bundledHelperVersionText: String = "读取中"
+    @Published private(set) var trafficStatistics: NulConnectTrafficStatistics = .empty
+    @Published private(set) var isLoggingOut = false
 
     private let authEngine = NulConnectAuthEngine()
     private let profileStore: ProfileStore
@@ -40,10 +42,15 @@ final class AppModel: ObservableObject {
     private var tunnelTask: Task<Void, Never>?
     private var tunnelHealthTask: Task<Void, Never>?
     private var sessionKeepAliveTask: Task<Void, Never>?
+    private var trafficSamplingTask: Task<Void, Never>?
     private var isRecoveringTunnelSession = false
     private var helperVersionsLoaded = false
     private var storedSessionMaterial: ATRSessionMaterial?
     private var suppressProfilePersistence = false
+    private var isStatisticsVisible = false
+    private var isMenuBarVisible = false
+    private var trafficCounterOffset: NulConnectTrafficCounters = .zero
+    private var previousTrafficSample: (counters: NulConnectTrafficCounters, instant: ContinuousClock.Instant)?
 
     init(
         profileStore: ProfileStore,
@@ -171,7 +178,7 @@ final class AppModel: ObservableObject {
     }
 
     var tunnelUnavailableMessage: String {
-        "TUN 模式需要可用的特权组件。"
+        "VPN 模式需要可用的特权组件。"
     }
 
     var isProxyRunning: Bool {
@@ -377,6 +384,54 @@ final class AppModel: ObservableObject {
         } catch {
             bannerMessage = "清除会话失败: \(error.localizedDescription)"
             lastPersistenceErrorMessage = error.localizedDescription
+        }
+    }
+
+    func logout() {
+        guard !isLoggingOut else { return }
+        isLoggingOut = true
+        bannerMessage = "正在退出登录"
+        Task { [weak self] in
+            guard let self else { return }
+            await self.prepareForApplicationTermination()
+            await self.authEngine.reset()
+            do {
+                try self.sessionVault.clear()
+                try self.resourceStore.delete()
+                self.storedSessionMaterial = nil
+                self.sessionSummary = nil
+                self.resourceSnapshot = nil
+                self.availableLoginMethods = []
+                self.webLoginSession = nil
+                self.loginState = .idle
+                self.lastPersistenceErrorMessage = nil
+                self.bannerMessage = "已退出登录"
+            } catch {
+                self.bannerMessage = "退出登录失败: \(error.localizedDescription)"
+                self.lastPersistenceErrorMessage = error.localizedDescription
+            }
+            self.isLoggingOut = false
+        }
+    }
+
+    func setStatisticsVisible(_ visible: Bool) {
+        isStatisticsVisible = visible
+        updateTrafficSamplingState()
+    }
+
+    func setMenuBarVisible(_ visible: Bool) {
+        isMenuBarVisible = visible
+        updateTrafficSamplingState()
+    }
+
+    private func updateTrafficSamplingState() {
+        if isTrafficMonitoringRequested {
+            startTrafficSampling()
+        } else {
+            stopTrafficSampling()
+            previousTrafficSample = nil
+            trafficStatistics.uploadBytesPerSecond = 0
+            trafficStatistics.downloadBytesPerSecond = 0
         }
     }
 
@@ -939,7 +994,7 @@ final class AppModel: ObservableObject {
             return
         }
         guard !isTunnelRunning && !isTunnelBusy else {
-            bannerMessage = "请先停止 TUN 模式"
+            bannerMessage = "请先停止 VPN 模式"
             return
         }
         guard storedSessionMaterial != nil else {
@@ -978,6 +1033,7 @@ final class AppModel: ObservableObject {
                 await MainActor.run {
                     self.proxyService = service
                     self.proxyState = .running(endpoint: endpoint)
+                    self.beginTrafficSession(continuing: false)
                     self.connectionState = NulConnectConnectionState(
                         phase: .connected,
                         message: "本地代理已启动 \(endpoint.displayString)",
@@ -1039,6 +1095,7 @@ final class AppModel: ObservableObject {
 
     private func finishStoppingProxyMode() {
         stopSessionKeepAlive()
+        captureProxyTrafficBeforeStop()
         proxyService?.stop()
         proxyService = nil
         proxyTask = nil
@@ -1049,11 +1106,12 @@ final class AppModel: ObservableObject {
             updatedAt: .now
         )
         bannerMessage = "代理模式已停止"
+        finishTrafficSession()
     }
 
     func startTunnelMode() {
         guard effectiveRouteMode == .tun else {
-            bannerMessage = "当前不是 TUN 模式"
+            bannerMessage = "当前不是 VPN 模式"
             return
         }
         guard isHelperInstalled else {
@@ -1079,14 +1137,14 @@ final class AppModel: ObservableObject {
             return
         }
         guard !isTunnelRunning && !isTunnelBusy else {
-            bannerMessage = "TUN 已经在运行"
+            bannerMessage = "VPN 已经在运行"
             return
         }
 
         tunnelState = .starting
         connectionState = NulConnectConnectionState(
             phase: .connecting,
-            message: "正在启动 TUN 模式",
+            message: "正在启动 VPN 模式",
             updatedAt: .now
         )
 
@@ -1116,12 +1174,13 @@ final class AppModel: ObservableObject {
                 )
                 await MainActor.run {
                     self.tunnelState = .running
+                    self.beginTrafficSession(continuing: self.isRecoveringTunnelSession)
                     self.connectionState = NulConnectConnectionState(
                         phase: .connected,
-                        message: "TUN 模式已启动",
+                        message: "VPN 模式已启动",
                         updatedAt: .now
                     )
-                    self.bannerMessage = "TUN 模式已启动"
+                    self.bannerMessage = "VPN 模式已启动"
                     self.lastPersistenceErrorMessage = nil
                     self.startSessionKeepAlive()
                     self.startTunnelHealthMonitor()
@@ -1142,7 +1201,7 @@ final class AppModel: ObservableObject {
                         message: error.localizedDescription,
                         updatedAt: .now
                     )
-                    self.bannerMessage = "启动 TUN 失败: \(error.localizedDescription)"
+                    self.bannerMessage = "启动 VPN 失败: \(error.localizedDescription)"
                     self.lastPersistenceErrorMessage = error.localizedDescription
                 }
             }
@@ -1156,6 +1215,7 @@ final class AppModel: ObservableObject {
         proxyTask?.cancel()
 
         if tunnelProxyService != nil || isTunnelRunning || isTunnelBusy {
+            await captureTunnelTrafficBeforeStop()
             try? await tunnelManager?.stop()
             tunnelProxyService?.stop()
             tunnelProxyService = nil
@@ -1168,6 +1228,7 @@ final class AppModel: ObservableObject {
         }
 
         if proxyService != nil {
+            captureProxyTrafficBeforeStop()
             proxyService?.stop()
             proxyService = nil
             proxyTask = nil
@@ -1179,6 +1240,7 @@ final class AppModel: ObservableObject {
             message: "网络组件已停止",
             updatedAt: .now
         )
+        finishTrafficSession()
     }
 
     func stopTunnelMode() {
@@ -1186,7 +1248,7 @@ final class AppModel: ObservableObject {
             tunnelState = .stopped
             connectionState = NulConnectConnectionState(
                 phase: .disconnected,
-                message: "TUN 未运行",
+                message: "VPN 未运行",
                 updatedAt: .now
             )
             return
@@ -1197,7 +1259,7 @@ final class AppModel: ObservableObject {
         isRecoveringTunnelSession = false
         connectionState = NulConnectConnectionState(
             phase: .disconnecting,
-            message: "正在停止 TUN 模式",
+            message: "正在停止 VPN 模式",
             updatedAt: .now
         )
 
@@ -1205,6 +1267,7 @@ final class AppModel: ObservableObject {
         tunnelTask = Task { [weak self] in
             guard let self else { return }
             do {
+                await self.captureTunnelTrafficBeforeStop()
                 try await self.tunnelManager?.stop()
                 await MainActor.run {
                     self.stopSessionKeepAlive()
@@ -1214,10 +1277,11 @@ final class AppModel: ObservableObject {
                     self.tunnelState = .stopped
                     self.connectionState = NulConnectConnectionState(
                         phase: .disconnected,
-                        message: "TUN 已停止",
+                        message: "VPN 已停止",
                         updatedAt: .now
                     )
-                    self.bannerMessage = "TUN 模式已停止"
+                    self.bannerMessage = "VPN 模式已停止"
+                    self.finishTrafficSession()
                 }
             } catch {
                 await MainActor.run {
@@ -1228,7 +1292,7 @@ final class AppModel: ObservableObject {
                         message: error.localizedDescription,
                         updatedAt: .now
                     )
-                    self.bannerMessage = "停止 TUN 失败: \(error.localizedDescription)"
+                    self.bannerMessage = "停止 VPN 失败: \(error.localizedDescription)"
                 }
             }
         }
@@ -1253,6 +1317,7 @@ final class AppModel: ObservableObject {
         }
 
         stopSessionKeepAlive()
+        captureProxyTrafficBeforeStop()
         proxyService?.stop()
         proxyService = nil
         proxyTask?.cancel()
@@ -1292,6 +1357,7 @@ final class AppModel: ObservableObject {
                 await MainActor.run {
                     self.proxyService = service
                     self.proxyState = .running(endpoint: endpoint)
+                    self.beginTrafficSession(continuing: true)
                     self.connectionState = NulConnectConnectionState(
                         phase: .connected,
                         message: "本地代理已恢复 \(endpoint.displayString)",
@@ -1401,7 +1467,7 @@ final class AppModel: ObservableObject {
     private func handleTunnelRuntimeStopped(_ status: NulConnectTunnelRuntimeStatus) async {
         stopTunnelHealthMonitor()
         stopSessionKeepAlive()
-        let message = status.message ?? "TUN 特权组件已停止"
+        let message = status.message ?? "VPN 特权组件已停止"
         let error = NulConnectTunnelManagerError.helperFailed(message)
 
         if Self.isStoredSessionInvalidError(error), !isRecoveringTunnelSession {
@@ -1409,7 +1475,7 @@ final class AppModel: ObservableObject {
             tunnelState = .stopped
             connectionState = NulConnectConnectionState(
                 phase: .connecting,
-                message: "登录会话已失效，正在恢复 TUN",
+                message: "登录会话已失效，正在恢复 VPN",
                 updatedAt: .now
             )
             bannerMessage = "正在恢复登录会话"
@@ -1424,7 +1490,7 @@ final class AppModel: ObservableObject {
             message: message,
             updatedAt: .now
         )
-        bannerMessage = "TUN 运行失败: \(message)"
+        bannerMessage = "VPN 运行失败: \(message)"
         lastPersistenceErrorMessage = message
     }
 
@@ -1440,6 +1506,148 @@ final class AppModel: ObservableObject {
         if isSystemProxyEnabled || isSystemProxyBusy {
             await disableSystemProxy()
         }
+    }
+
+    private func beginTrafficSession(continuing: Bool) {
+        if continuing {
+            trafficCounterOffset = trafficStatistics.counters
+        } else {
+            trafficCounterOffset = .zero
+            trafficStatistics = NulConnectTrafficStatistics(
+                counters: .zero,
+                uploadBytesPerSecond: 0,
+                downloadBytesPerSecond: 0,
+                connectionStartedAt: .now,
+                connectionDuration: 0,
+                isLive: true
+            )
+        }
+        previousTrafficSample = nil
+        if isTrafficMonitoringRequested {
+            startTrafficSampling()
+        }
+    }
+
+    private func finishTrafficSession() {
+        stopTrafficSampling()
+        previousTrafficSample = nil
+        trafficStatistics.uploadBytesPerSecond = 0
+        trafficStatistics.downloadBytesPerSecond = 0
+        if let startedAt = trafficStatistics.connectionStartedAt {
+            trafficStatistics.connectionDuration = max(0, Date().timeIntervalSince(startedAt))
+        }
+        trafficStatistics.isLive = false
+    }
+
+    private func startTrafficSampling() {
+        guard isTrafficMonitoringRequested, isProxyRunning || isTunnelRunning else { return }
+        guard trafficSamplingTask == nil else { return }
+        trafficSamplingTask = Task { [weak self] in
+            guard let self else { return }
+            await self.sampleTraffic()
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                    try Task.checkCancellation()
+                    await self.sampleTraffic()
+                } catch is CancellationError {
+                    return
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func stopTrafficSampling() {
+        trafficSamplingTask?.cancel()
+        trafficSamplingTask = nil
+    }
+
+    private var isTrafficMonitoringRequested: Bool {
+        isStatisticsVisible || isMenuBarVisible
+    }
+
+    private func sampleTraffic() async {
+        guard isProxyRunning || isTunnelRunning else {
+            finishTrafficSession()
+            return
+        }
+        do {
+            let rawCounters = try await currentTrafficCounters()
+            applyTrafficCounters(rawCounters, at: .now)
+        } catch {
+            // Statistics are auxiliary and must never affect the connection state.
+        }
+    }
+
+    private func currentTrafficCounters() async throws -> NulConnectTrafficCounters {
+        if isTunnelRunning, let tunnelManager,
+           let status = try await tunnelManager.runtimeStatus() {
+            return status.traffic
+        }
+        if let proxyService {
+            return try proxyService.trafficCounters()
+        }
+        return .zero
+    }
+
+    private func applyTrafficCounters(_ rawCounters: NulConnectTrafficCounters, at date: Date) {
+        let counters = Self.addTrafficCounters(trafficCounterOffset, rawCounters)
+        let instant = ContinuousClock.now
+        var uploadRate = 0.0
+        var downloadRate = 0.0
+        if let previousTrafficSample {
+            let elapsed = previousTrafficSample.instant.duration(to: instant)
+            let seconds = Double(elapsed.components.seconds)
+                + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000_000
+            if seconds > 0 {
+                uploadRate = Double(Self.positiveDifference(
+                    counters.uploadedBytes,
+                    previousTrafficSample.counters.uploadedBytes
+                )) / seconds
+                downloadRate = Double(Self.positiveDifference(
+                    counters.downloadedBytes,
+                    previousTrafficSample.counters.downloadedBytes
+                )) / seconds
+            }
+        }
+
+        previousTrafficSample = (counters, instant)
+        trafficStatistics.counters = counters
+        trafficStatistics.uploadBytesPerSecond = uploadRate
+        trafficStatistics.downloadBytesPerSecond = downloadRate
+        if let startedAt = trafficStatistics.connectionStartedAt {
+            trafficStatistics.connectionDuration = max(0, date.timeIntervalSince(startedAt))
+        }
+        trafficStatistics.isLive = true
+    }
+
+    private func captureProxyTrafficBeforeStop() {
+        guard let counters = try? proxyService?.trafficCounters() else { return }
+        applyTrafficCounters(counters, at: .now)
+    }
+
+    private func captureTunnelTrafficBeforeStop() async {
+        guard let tunnelManager,
+              let status = try? await tunnelManager.runtimeStatus() else { return }
+        applyTrafficCounters(status.traffic, at: .now)
+    }
+
+    private nonisolated static func addTrafficCounters(
+        _ lhs: NulConnectTrafficCounters,
+        _ rhs: NulConnectTrafficCounters
+    ) -> NulConnectTrafficCounters {
+        NulConnectTrafficCounters(
+            uploadedBytes: lhs.uploadedBytes &+ rhs.uploadedBytes,
+            downloadedBytes: lhs.downloadedBytes &+ rhs.downloadedBytes,
+            uploadedPackets: lhs.uploadedPackets &+ rhs.uploadedPackets,
+            downloadedPackets: lhs.downloadedPackets &+ rhs.downloadedPackets
+        )
+    }
+
+    private nonisolated static func positiveDifference(_ value: UInt64, _ previous: UInt64) -> UInt64 {
+        value >= previous ? value - previous : 0
     }
 
     private func scheduleProfilePersistence() {

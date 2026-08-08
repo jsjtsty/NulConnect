@@ -206,42 +206,57 @@ struct ContentView: View {
 }
 
 struct NulConnectSettingsView: View {
+    private enum SettingsTab: Hashable {
+        case service
+        case connection
+        case statistics
+        case helper
+        case about
+    }
+
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var windowCoordinator: NulConnectWindowCoordinator
     @State private var selectedRouteMode: NulConnectRouteMode = .proxy
     @State private var showingHelperInstallConfirmation = false
     @State private var showingHelperUninstallConfirmation = false
+    @State private var showingLogoutConfirmation = false
+    @State private var selectedTab: SettingsTab = .service
     @State private var serverHostDraft = ""
     @State private var serverPortDraft = ""
     @State private var localProxyPortDraft = ""
     @State private var userAgentDraft = ""
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             serviceSettings
                 .tabItem {
-                    Label("服务", systemImage: "slider.horizontal.3")
+                    Label("服务", systemImage: "server.rack")
                 }
+                .tag(SettingsTab.service)
 
             connectionSettings
                 .tabItem {
                     Label("连接", systemImage: "network")
                 }
+                .tag(SettingsTab.connection)
 
-            dataSettings
+            statisticsSettings
                 .tabItem {
-                    Label("数据", systemImage: "externaldrive.fill")
+                    Label("统计", systemImage: "chart.xyaxis.line")
                 }
+                .tag(SettingsTab.statistics)
 
             helperSettings
                 .tabItem {
                     Label("特权组件", systemImage: "shield.lefthalf.filled")
                 }
+                .tag(SettingsTab.helper)
 
             aboutSettings
                 .tabItem {
                     Label("关于", systemImage: "info.circle")
                 }
+                .tag(SettingsTab.about)
         }
         .frame(width: 560)
         .fixedSize(horizontal: false, vertical: true)
@@ -251,8 +266,15 @@ struct NulConnectSettingsView: View {
             syncPortalDrafts()
             syncLocalProxyDraft()
             syncUserAgentDraft()
+            updateStatisticsVisibility(for: selectedTab)
         }
-        .onDisappear { commitDrafts() }
+        .onDisappear {
+            commitDrafts()
+            model.setStatisticsVisible(false)
+        }
+        .onChange(of: selectedTab) { _, newValue in
+            updateStatisticsVisibility(for: newValue)
+        }
         .onChange(of: model.effectiveRouteMode) { _, newValue in
             if selectedRouteMode != newValue {
                 selectedRouteMode = newValue
@@ -276,6 +298,18 @@ struct NulConnectSettingsView: View {
             }
         )
         .confirmationDialog(
+            "退出登录",
+            isPresented: $showingLogoutConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("断开连接并退出登录", role: .destructive) {
+                model.logout()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("退出登录将停止当前连接，并删除保存在本机的登录会话。")
+        }
+        .confirmationDialog(
             "安装特权组件",
             isPresented: $showingHelperInstallConfirmation,
             titleVisibility: .visible
@@ -291,7 +325,7 @@ struct NulConnectSettingsView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("安装特权组件需要管理员权限，可能降低系统安全性，只有在你明确需要系统代理或 TUN 模式时才建议继续。")
+            Text("安装特权组件需要管理员权限，可能降低系统安全性，只有在你明确需要系统代理或 VPN 模式时才建议继续。")
         }
         .confirmationDialog(
             "卸载特权组件",
@@ -303,7 +337,7 @@ struct NulConnectSettingsView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("这会移除系统中的特权组件、LaunchDaemon 和状态文件，卸载后系统代理与 TUN 需要重新安装才能使用。")
+            Text("这会移除系统中的特权组件、LaunchDaemon 和状态文件，卸载后系统代理与 VPN 模式需要重新安装才能使用。")
         }
     }
 
@@ -315,7 +349,7 @@ struct NulConnectSettingsView: View {
 
                 SettingsActionRow(
                     title: "安装或更新特权组件",
-                    subtitle: "安装特权组件以启用系统代理和 TUN 模式，非特殊情况不推荐安装。",
+                    subtitle: "安装特权组件以启用系统代理和 VPN 模式，非特殊情况不推荐安装。",
                     systemImage: "arrow.down.circle.fill"
                 ) {
                     showingHelperInstallConfirmation = true
@@ -331,7 +365,7 @@ struct NulConnectSettingsView: View {
 
                 SettingsActionRow(
                     title: "卸载特权组件",
-                    subtitle: "移除用于支持系统代理和 TUN 模式的辅助程序、启动项和本地状态文件。",
+                    subtitle: "移除用于支持系统代理和 VPN 模式的辅助程序、启动项和本地状态文件。",
                     systemImage: "trash"
                 ) {
                     showingHelperUninstallConfirmation = true
@@ -355,15 +389,46 @@ struct NulConnectSettingsView: View {
                     .onSubmit { commitServerPortDraft() }
             }
 
-            Section("HIT Web 登录") {
-                SettingsActionRow(
-                    title: "重新登录",
-                    subtitle: "通过 HIT 统一身份认证重新登录到服务器。",
-                    systemImage: "person.badge.key"
-                ) {
-                    model.startWebLogin()
+            Section("账户") {
+                if let summary = model.sessionSummary {
+                    HStack(spacing: 12) {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(summary.username)
+                            Text("已登录")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
+
+                    SettingsActionRow(
+                        title: "退出登录",
+                        subtitle: "删除本机保存的登录会话和账户资源。",
+                        systemImage: "rectangle.portrait.and.arrow.right",
+                        role: .destructive
+                    ) {
+                        requestLogout()
+                    }
+                    .disabled(model.isLoggingOut)
+                } else {
+                    SettingsActionRow(
+                        title: "登录",
+                        subtitle: "通过 HIT 统一身份认证登录到服务器。",
+                        systemImage: "person.badge.key"
+                    ) {
+                        model.startWebLogin()
+                    }
+                    .disabled(!model.isLoginConfigurationReady || model.isLoggingOut)
                 }
-                .disabled(!model.isLoginConfigurationReady)
             }
         }
         .formStyle(.grouped)
@@ -390,7 +455,7 @@ struct NulConnectSettingsView: View {
                 if model.effectiveRouteMode == .tun {
                     PrivilegedFeatureNotice(
                         systemImage: "network.badge.shield.half.filled",
-                        text: "TUN 模式会接管所有流量，可能导致未知问题，非特殊情况不建议使用此模式。",
+                        text: "VPN 模式会接管所有流量，可能导致未知问题，非特殊情况不建议使用此模式。",
                         isDangerous: true
                     )
                 }
@@ -418,7 +483,7 @@ struct NulConnectSettingsView: View {
                 if !model.isHelperInstalled {
                     PrivilegedFeatureNotice(
                         systemImage: "lock.shield",
-                        text: "使用系统代理和 TUN 模式需要在“特权组件”页安装组件，非特殊情况不建议使用这些模式。"
+                        text: "使用系统代理和 VPN 模式需要在“特权组件”页安装组件，非特殊情况不建议使用这些模式。"
                     )
                 }
             }
@@ -470,48 +535,8 @@ struct NulConnectSettingsView: View {
         }
     }
 
-    private var dataSettings: some View {
-        Form {
-            Section("持久化") {
-                LabeledContent("会话", value: sessionSummaryText)
-                LabeledContent("资源快照", value: resourceSummaryText)
-
-                if let error = model.lastPersistenceErrorMessage {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-
-            Section {
-                SettingsActionRow(
-                    title: "重新载入",
-                    subtitle: "从本地存储重新读取配置、会话和资源快照。",
-                    systemImage: "arrow.clockwise"
-                ) {
-                    model.reloadPersistedState()
-                }
-
-                SettingsActionRow(
-                    title: "清除会话",
-                    subtitle: "删除保存的登录会话，下次连接需要重新登录。",
-                    systemImage: "person.crop.circle.badge.xmark",
-                    role: .destructive
-                ) {
-                    model.clearSessionMaterial()
-                }
-
-                SettingsActionRow(
-                    title: "清除资源",
-                    subtitle: "删除本地资源快照，下次登录后会重新获取。",
-                    systemImage: "trash",
-                    role: .destructive
-                ) {
-                    model.clearResourceSnapshot()
-                }
-            }
-        }
-        .formStyle(.grouped)
+    private var statisticsSettings: some View {
+        NulConnectStatisticsSettingsView()
     }
 
     private var aboutSettings: some View {
@@ -539,18 +564,23 @@ struct NulConnectSettingsView: View {
         .textSelection(.disabled)
     }
 
-    private var sessionSummaryText: String {
-        guard let summary = model.sessionSummary else {
-            return "未保存"
+    private func requestLogout() {
+        if model.isVPNConnectedOrConnecting {
+            showingLogoutConfirmation = true
+        } else {
+            model.logout()
         }
-        return "\(summary.username) · \(summary.deviceID) · \(summary.cookieCount) 个 Cookie"
     }
 
-    private var resourceSummaryText: String {
-        guard let snapshot = model.resourceSnapshot else {
-            return "未载入"
+    private func updateStatisticsVisibility(for tab: SettingsTab) {
+        let isVisible: Bool
+        switch tab {
+        case .statistics:
+            isVisible = true
+        default:
+            isVisible = false
         }
-        return "\(snapshot.resourceBytes.count) 字节 · \(snapshot.ipResources.count) IP · \(snapshot.domainResources.count) 域名"
+        model.setStatisticsVisible(isVisible)
     }
 
     private var appVersionText: String {
@@ -625,22 +655,36 @@ struct NulConnectMenuBarContent: View {
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        Group {
             Text(menuStatusText)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .onAppear {
+                    model.setMenuBarVisible(true)
+                }
+                .onDisappear {
+                    model.setMenuBarVisible(false)
+                }
+
+            if isTrafficActive {
+                Text(
+                    "↓ \(NulConnectTrafficFormatter.rate(model.trafficStatistics.downloadBytesPerSecond))"
+                        + "    ↑ \(NulConnectTrafficFormatter.rate(model.trafficStatistics.uploadBytesPerSecond))"
+                )
+                .monospacedDigit()
+
+            }
 
             Divider()
 
-            Button("打开主界面") {
+            Button {
                 if !windowCoordinator.activateForPresentation(role: .main) {
                     openWindow(id: "main")
                 }
                 windowCoordinator.updateVisibilityAfterPresentation()
+            } label: {
+                Label("仪表板", systemImage: "rectangle.3.group")
             }
 
-            Button(model.isProxyRunning ? "停止代理" : "启动代理") {
+            Button {
                 switch model.effectiveRouteMode {
                 case .proxy:
                     if model.isProxyRunning {
@@ -655,10 +699,12 @@ struct NulConnectMenuBarContent: View {
                         model.startTunnelMode()
                     }
                 }
+            } label: {
+                Label(connectionActionTitle, systemImage: connectionActionSystemImage)
             }
             .disabled(model.isProxyBusy || model.isTunnelBusy || model.isSystemProxyBusy)
 
-            Button("打开设置") {
+            Button {
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
                 openSettings()
@@ -666,22 +712,50 @@ struct NulConnectMenuBarContent: View {
                     NSApp.activate(ignoringOtherApps: true)
                     windowCoordinator.updateVisibilityAfterPresentation()
                 }
+            } label: {
+                Label("设置", systemImage: "gearshape")
             }
 
             Divider()
 
-            Button("退出") {
+            Button {
                 NSApp.terminate(nil)
+            } label: {
+                Label("退出", systemImage: "power")
             }
         }
-        .frame(width: 204, alignment: .leading)
-        .padding(12)
     }
 
     private var menuStatusText: String {
         let phase = model.connectionState.phase.title
         let host = model.profile.serverHost.isEmpty ? "未配置服务器" : model.profile.serverHost
         return "\(phase) · \(host)"
+    }
+
+    private var isTrafficActive: Bool {
+        model.isProxyRunning || model.isTunnelRunning
+    }
+
+    private var isSelectedModeRunning: Bool {
+        switch model.effectiveRouteMode {
+        case .proxy:
+            return model.isProxyRunning
+        case .tun:
+            return model.isTunnelRunning
+        }
+    }
+
+    private var connectionActionTitle: String {
+        switch model.effectiveRouteMode {
+        case .proxy:
+            return isSelectedModeRunning ? "停止代理" : "启动代理"
+        case .tun:
+            return isSelectedModeRunning ? "停止 VPN" : "启动 VPN"
+        }
+    }
+
+    private var connectionActionSystemImage: String {
+        isSelectedModeRunning ? "stop.fill" : "play.fill"
     }
 
 }
@@ -722,6 +796,115 @@ private struct PrivilegedFeatureNotice: View {
 
     private var foregroundColor: Color {
         isDangerous ? .red : .secondary
+    }
+}
+
+private struct NulConnectStatisticsSettingsView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        Form {
+            Section("实时流量") {
+                HStack(spacing: 28) {
+                    trafficMetric(
+                        title: "下载",
+                        value: NulConnectTrafficFormatter.rate(
+                            model.trafficStatistics.downloadBytesPerSecond
+                        ),
+                        systemImage: "arrow.down",
+                        color: .blue
+                    )
+                    trafficMetric(
+                        title: "上传",
+                        value: NulConnectTrafficFormatter.rate(
+                            model.trafficStatistics.uploadBytesPerSecond
+                        ),
+                        systemImage: "arrow.up",
+                        color: .green
+                    )
+                }
+                .padding(.vertical, 4)
+            }
+
+            Section("本次连接") {
+                LabeledContent(
+                    "已下载",
+                    value: NulConnectTrafficFormatter.bytes(
+                        model.trafficStatistics.counters.downloadedBytes
+                    )
+                )
+                LabeledContent(
+                    "已上传",
+                    value: NulConnectTrafficFormatter.bytes(
+                        model.trafficStatistics.counters.uploadedBytes
+                    )
+                )
+                LabeledContent("连接时长", value: connectionDurationText)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func trafficMetric(
+        title: String,
+        value: String,
+        systemImage: String,
+        color: Color
+    ) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: systemImage)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(color)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.system(.title3, design: .rounded, weight: .medium))
+                    .monospacedDigit()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var connectionDurationText: String {
+        guard model.trafficStatistics.connectionStartedAt != nil else {
+            return "--"
+        }
+        let seconds = Int(model.trafficStatistics.connectionDuration)
+        let hours = seconds / 3_600
+        let minutes = (seconds % 3_600) / 60
+        let remainingSeconds = seconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
+        }
+        return String(format: "%02d:%02d", minutes, remainingSeconds)
+    }
+
+}
+
+private enum NulConnectTrafficFormatter {
+    static func rate(_ value: Double) -> String {
+        format(max(0, value), suffix: "/s")
+    }
+
+    static func bytes(_ value: UInt64) -> String {
+        format(Double(value), suffix: "")
+    }
+
+    private static func format(_ value: Double, suffix: String) -> String {
+        let units = ["B", "KB", "MB", "GB", "TB"]
+        var scaledValue = value
+        var unitIndex = 0
+        while scaledValue >= 1_024, unitIndex < units.count - 1 {
+            scaledValue /= 1_024
+            unitIndex += 1
+        }
+
+        let fractionDigits = unitIndex == 0 || scaledValue >= 100 ? 0 : 1
+        return "\(scaledValue.formatted(.number.precision(.fractionLength(fractionDigits)))) \(units[unitIndex])\(suffix)"
     }
 }
 

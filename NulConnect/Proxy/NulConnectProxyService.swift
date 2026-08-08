@@ -129,6 +129,19 @@ final class NulConnectProxyService {
         }
     }
 
+    func trafficCounters() throws -> NulConnectTrafficCounters {
+        guard let service else {
+            return .zero
+        }
+        let stats = try service.trafficStats()
+        return NulConnectTrafficCounters(
+            uploadedBytes: stats.managedUploadBytes,
+            downloadedBytes: stats.managedDownloadBytes,
+            uploadedPackets: 0,
+            downloadedPackets: 0
+        )
+    }
+
     private func startEventMonitor(_ service: ATRProxyService, keepAlive: ATRKeepAliveService) {
         eventMonitorTask?.cancel()
         let onSessionInvalidated = onSessionInvalidated

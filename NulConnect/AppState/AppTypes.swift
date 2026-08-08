@@ -9,7 +9,7 @@ enum NulConnectRouteMode: String, Codable, CaseIterable, Identifiable, Sendable 
     var title: String {
         switch self {
         case .proxy: return "代理模式"
-        case .tun: return "TUN 模式"
+        case .tun: return "VPN 模式"
         }
     }
 
@@ -186,6 +186,38 @@ struct NulConnectProxyEndpoint: Sendable, Codable, Equatable {
     var displayString: String {
         "\(host):\(port)"
     }
+}
+
+nonisolated struct NulConnectTrafficCounters: Sendable, Equatable {
+    var uploadedBytes: UInt64
+    var downloadedBytes: UInt64
+    var uploadedPackets: UInt64
+    var downloadedPackets: UInt64
+
+    static let zero = NulConnectTrafficCounters(
+        uploadedBytes: 0,
+        downloadedBytes: 0,
+        uploadedPackets: 0,
+        downloadedPackets: 0
+    )
+}
+
+nonisolated struct NulConnectTrafficStatistics: Sendable, Equatable {
+    var counters: NulConnectTrafficCounters
+    var uploadBytesPerSecond: Double
+    var downloadBytesPerSecond: Double
+    var connectionStartedAt: Date?
+    var connectionDuration: TimeInterval
+    var isLive: Bool
+
+    static let empty = NulConnectTrafficStatistics(
+        counters: .zero,
+        uploadBytesPerSecond: 0,
+        downloadBytesPerSecond: 0,
+        connectionStartedAt: nil,
+        connectionDuration: 0,
+        isLive: false
+    )
 }
 
 enum NulConnectProxyRuntimeState: Equatable, Sendable {

@@ -8,9 +8,9 @@ nonisolated enum NulConnectTunnelManagerError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .helperStateUnavailable:
-            return "无法读取 TUN 运行状态"
+            return "无法读取 VPN 运行状态"
         case .helperFailed(let message):
-            return "TUN 特权组件失败: \(message)"
+            return "VPN 特权组件失败: \(message)"
         }
     }
 }
@@ -18,6 +18,7 @@ nonisolated enum NulConnectTunnelManagerError: LocalizedError {
 nonisolated struct NulConnectTunnelRuntimeStatus: Sendable {
     var status: String
     var message: String?
+    var traffic: NulConnectTrafficCounters
 }
 
 nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
@@ -62,7 +63,8 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
         guard helperClient.isRunning() else {
             return NulConnectTunnelRuntimeStatus(
                 status: "failed",
-                message: "TUN 特权组件已退出"
+                message: "VPN 特权组件已退出",
+                traffic: .zero
             )
         }
         let response = try await helperClient.status()
@@ -72,8 +74,24 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
         }
         return NulConnectTunnelRuntimeStatus(
             status: status,
-            message: tun["message"] as? String
+            message: tun["message"] as? String,
+            traffic: NulConnectTrafficCounters(
+                uploadedBytes: Self.uint64Value(tun["upload_bytes"]),
+                downloadedBytes: Self.uint64Value(tun["download_bytes"]),
+                uploadedPackets: Self.uint64Value(tun["upload_packets"]),
+                downloadedPackets: Self.uint64Value(tun["download_packets"])
+            )
         )
+    }
+
+    private static func uint64Value(_ value: Any?) -> UInt64 {
+        if let value = value as? NSNumber {
+            return value.uint64Value
+        }
+        if let value = value as? UInt64 {
+            return value
+        }
+        return 0
     }
 
     private func waitForPersistentHelperRunning() async throws {

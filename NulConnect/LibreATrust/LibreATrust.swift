@@ -121,6 +121,11 @@ struct ATRProxyServiceStats: Sendable {
     var lastEvent: ATRProxyServiceEvent?
 }
 
+struct ATRProxyServiceTrafficStats: Sendable {
+    var managedUploadBytes: UInt64
+    var managedDownloadBytes: UInt64
+}
+
 struct ATRKeepAliveConfiguration: Sendable {
     var interval: UInt64
     var url: String?
@@ -707,6 +712,20 @@ nonisolated final class ATRProxyService {
                     kind: stats.last_event_kind,
                     message: optionalCStringString(stats.last_event_message)
                 )
+            )
+        }
+    }
+
+    func trafficStats() throws -> ATRProxyServiceTrafficStats {
+        try withRaw { raw in
+            var stats = atr_proxy_service_traffic_stats_t(
+                managed_upload_bytes: 0,
+                managed_download_bytes: 0
+            )
+            try check(atr_proxy_service_get_traffic_stats(raw, &stats))
+            return ATRProxyServiceTrafficStats(
+                managedUploadBytes: stats.managed_upload_bytes,
+                managedDownloadBytes: stats.managed_download_bytes
             )
         }
     }
