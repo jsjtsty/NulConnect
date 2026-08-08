@@ -2,34 +2,42 @@ import Foundation
 import Darwin
 
 nonisolated enum NulConnectDiagnostics {
+    private static let fileLock = NSLock()
+    private static let logFileURL: URL = {
+        let directory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Logs", isDirectory: true)
+            .appendingPathComponent("NulConnect", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("diagnostics.log")
+    }()
+
     static func log(_ message: String) {
-        #if DEBUG && NULCONNECT_ENABLE_LOGS
-        print(message)
-        #else
-        _ = message
-        #endif
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(timestamp)] \(message)\n"
+        Swift.print(message)
+        fileLock.lock()
+        defer { fileLock.unlock() }
+        if !FileManager.default.fileExists(atPath: logFileURL.path) {
+            FileManager.default.createFile(atPath: logFileURL.path, contents: nil)
+        }
+        guard let handle = try? FileHandle(forWritingTo: logFileURL) else { return }
+        defer { try? handle.close() }
+        try? handle.seekToEnd()
+        try? handle.write(contentsOf: Data(line.utf8))
     }
 
     static func logCommand(label: String, executable: String, arguments: [String], timeoutSeconds: TimeInterval = 3) async {
-        #if DEBUG && NULCONNECT_ENABLE_LOGS
         let output = await runCommand(executable: executable, arguments: arguments, timeoutSeconds: timeoutSeconds)
         log("[NulConnect][Diagnostics] \(label):\n\(output)")
-        #else
-        _ = (label, executable, arguments, timeoutSeconds)
-        #endif
     }
 
     static func logNetworkSnapshot(reason: String) async {
-        #if DEBUG && NULCONNECT_ENABLE_LOGS
         log("[NulConnect][Diagnostics] network snapshot begin: \(reason)")
         await logCommand(label: "route default", executable: "/sbin/route", arguments: ["-n", "get", "default"])
         await logCommand(label: "route 198.18.0.1", executable: "/sbin/route", arguments: ["-n", "get", "198.18.0.1"])
         await logCommand(label: "netstat inet", executable: "/usr/sbin/netstat", arguments: ["-rn", "-f", "inet"])
         await logCommand(label: "dns", executable: "/usr/sbin/scutil", arguments: ["--dns"], timeoutSeconds: 5)
         log("[NulConnect][Diagnostics] network snapshot end: \(reason)")
-        #else
-        _ = reason
-        #endif
     }
 
     private static func runCommand(executable: String, arguments: [String], timeoutSeconds: TimeInterval) async -> String {

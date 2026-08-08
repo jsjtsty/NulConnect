@@ -165,6 +165,9 @@ final class NulConnectProxyService {
                     }
                     if pollCount % 30 == 0 {
                         let status = try keepAlive.status()
+                        NulConnectDiagnostics.log(
+                            "[NulConnect][Proxy] keep-alive status: probes=\(status.probeCount) lastError=\(status.lastError ?? "nil")"
+                        )
                         if let message = status.lastError, message != reportedKeepAliveError {
                             reportedKeepAliveError = message
                             NulConnectDiagnostics.log("[NulConnect][Proxy] keep-alive failed: \(message)")
