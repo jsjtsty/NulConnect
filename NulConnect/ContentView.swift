@@ -721,6 +721,7 @@ private struct NulConnectStatisticsSettingsView: View {
         }
         .formStyle(.grouped)
         .textSelection(.disabled)
+        .allowsHitTesting(false)
     }
 
     private func trafficMetric(
