@@ -238,3 +238,43 @@ struct NulConnectWebLoginSheet: View {
             .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
+
+struct NulConnectWebLoginWindow: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var windowCoordinator: NulConnectWindowCoordinator
+    @Environment(\.dismissWindow) private var dismissWindow
+
+    var body: some View {
+        Group {
+            if let session = model.webLoginSession {
+                NulConnectWebLoginSheet(
+                    session: session,
+                    onCaptured: { callbackURL in
+                        model.completeWebLogin(with: callbackURL)
+                    },
+                    onCancel: {
+                        model.cancelWebLogin()
+                    }
+                )
+            } else {
+                ProgressView()
+                    .frame(minWidth: 980, minHeight: 680)
+            }
+        }
+        .background(
+            NulConnectWindowAccessor { window in
+                windowCoordinator.register(window: window, role: .webLogin)
+            }
+        )
+        .onChange(of: model.webLoginSession?.id) { _, sessionID in
+            if sessionID == nil {
+                dismissWindow(id: "web-login")
+            }
+        }
+        .onDisappear {
+            if model.webLoginSession != nil {
+                model.cancelWebLogin()
+            }
+        }
+    }
+}

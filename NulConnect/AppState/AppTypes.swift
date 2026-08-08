@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 enum NulConnectRouteMode: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -218,6 +219,15 @@ nonisolated struct NulConnectTrafficStatistics: Sendable, Equatable {
         connectionDuration: 0,
         isLive: false
     )
+}
+
+@MainActor
+final class NulConnectTrafficStore: ObservableObject {
+    @Published fileprivate(set) var statistics: NulConnectTrafficStatistics = .empty
+
+    func update(_ statistics: NulConnectTrafficStatistics) {
+        self.statistics = statistics
+    }
 }
 
 enum NulConnectProxyRuntimeState: Equatable, Sendable {

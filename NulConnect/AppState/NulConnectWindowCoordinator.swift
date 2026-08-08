@@ -5,6 +5,7 @@ import SwiftUI
 enum NulConnectWindowRole: String, CaseIterable, Sendable {
     case main
     case settings
+    case webLogin
 
     var windowIdentifier: NSUserInterfaceItemIdentifier {
         NSUserInterfaceItemIdentifier("NulConnect.\(rawValue)")

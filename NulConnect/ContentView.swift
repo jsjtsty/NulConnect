@@ -28,19 +28,6 @@ struct ContentView: View {
                 }
             }
         }
-        .sheet(item: $model.webLoginSession, onDismiss: {
-            model.cancelWebLogin()
-        }) { session in
-            NulConnectWebLoginSheet(
-                session: session,
-                onCaptured: { callbackURL in
-                    model.completeWebLogin(with: callbackURL)
-                },
-                onCancel: {
-                    model.cancelWebLogin()
-                }
-            )
-        }
     }
 
     private var connectionHeader: some View {
@@ -307,7 +294,7 @@ struct NulConnectSettingsView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("退出登录将停止当前连接，并删除保存在本机的登录会话。")
+            Text("退出登录将停止当前连接，并删除本机保存的会话及 HIT Web 登录数据。")
         }
         .confirmationDialog(
             "安装特权组件",
@@ -344,8 +331,16 @@ struct NulConnectSettingsView: View {
     private var helperSettings: some View {
         Form {
             Section("特权组件") {
-                LabeledContent("已安装版本", value: model.helperVersionText)
-                LabeledContent("内置版本", value: model.bundledHelperVersionText)
+                LabeledContent("已安装版本") {
+                    Text(model.helperVersionText)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.disabled)
+                }
+                LabeledContent("内置版本") {
+                    Text(model.bundledHelperVersionText)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.disabled)
+                }
 
                 SettingsActionRow(
                     title: "安装或更新特权组件",
@@ -374,6 +369,7 @@ struct NulConnectSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .textSelection(.disabled)
         .onAppear {
             model.refreshHelperVersion()
         }
@@ -391,28 +387,15 @@ struct NulConnectSettingsView: View {
 
             Section("账户") {
                 if let summary = model.sessionSummary {
-                    HStack(spacing: 12) {
-                        Image(systemName: "person.crop.circle.fill")
-                            .font(.title2)
+                    LabeledContent("账号") {
+                        Text(summary.username)
                             .foregroundStyle(.secondary)
-                            .frame(width: 28)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(summary.username)
-                            Text("已登录")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                            .textSelection(.disabled)
                     }
 
                     SettingsActionRow(
                         title: "退出登录",
-                        subtitle: "删除本机保存的登录会话和账户资源。",
+                        subtitle: "删除本机保存的登录会话、账户资源和 Web 登录数据。",
                         systemImage: "rectangle.portrait.and.arrow.right",
                         role: .destructive
                     ) {
@@ -420,6 +403,12 @@ struct NulConnectSettingsView: View {
                     }
                     .disabled(model.isLoggingOut)
                 } else {
+                    LabeledContent("账号") {
+                        Text("未登录")
+                            .foregroundStyle(.secondary)
+                            .textSelection(.disabled)
+                    }
+
                     SettingsActionRow(
                         title: "登录",
                         subtitle: "通过 HIT 统一身份认证登录到服务器。",
@@ -648,118 +637,6 @@ struct NulConnectSettingsView: View {
     }
 }
 
-struct NulConnectMenuBarContent: View {
-    @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var windowCoordinator: NulConnectWindowCoordinator
-    @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
-
-    var body: some View {
-        Group {
-            Text(menuStatusText)
-                .onAppear {
-                    model.setMenuBarVisible(true)
-                }
-                .onDisappear {
-                    model.setMenuBarVisible(false)
-                }
-
-            if isTrafficActive {
-                Text(
-                    "↓ \(NulConnectTrafficFormatter.rate(model.trafficStatistics.downloadBytesPerSecond))"
-                        + "    ↑ \(NulConnectTrafficFormatter.rate(model.trafficStatistics.uploadBytesPerSecond))"
-                )
-                .monospacedDigit()
-
-            }
-
-            Divider()
-
-            Button {
-                if !windowCoordinator.activateForPresentation(role: .main) {
-                    openWindow(id: "main")
-                }
-                windowCoordinator.updateVisibilityAfterPresentation()
-            } label: {
-                Label("仪表板", systemImage: "rectangle.3.group")
-            }
-
-            Button {
-                switch model.effectiveRouteMode {
-                case .proxy:
-                    if model.isProxyRunning {
-                        model.stopProxyMode()
-                    } else {
-                        model.startProxyMode()
-                    }
-                case .tun:
-                    if model.isTunnelRunning {
-                        model.stopTunnelMode()
-                    } else {
-                        model.startTunnelMode()
-                    }
-                }
-            } label: {
-                Label(connectionActionTitle, systemImage: connectionActionSystemImage)
-            }
-            .disabled(model.isProxyBusy || model.isTunnelBusy || model.isSystemProxyBusy)
-
-            Button {
-                NSApp.setActivationPolicy(.regular)
-                NSApp.activate(ignoringOtherApps: true)
-                openSettings()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    NSApp.activate(ignoringOtherApps: true)
-                    windowCoordinator.updateVisibilityAfterPresentation()
-                }
-            } label: {
-                Label("设置", systemImage: "gearshape")
-            }
-
-            Divider()
-
-            Button {
-                NSApp.terminate(nil)
-            } label: {
-                Label("退出", systemImage: "power")
-            }
-        }
-    }
-
-    private var menuStatusText: String {
-        let phase = model.connectionState.phase.title
-        let host = model.profile.serverHost.isEmpty ? "未配置服务器" : model.profile.serverHost
-        return "\(phase) · \(host)"
-    }
-
-    private var isTrafficActive: Bool {
-        model.isProxyRunning || model.isTunnelRunning
-    }
-
-    private var isSelectedModeRunning: Bool {
-        switch model.effectiveRouteMode {
-        case .proxy:
-            return model.isProxyRunning
-        case .tun:
-            return model.isTunnelRunning
-        }
-    }
-
-    private var connectionActionTitle: String {
-        switch model.effectiveRouteMode {
-        case .proxy:
-            return isSelectedModeRunning ? "停止代理" : "启动代理"
-        case .tun:
-            return isSelectedModeRunning ? "停止 VPN" : "启动 VPN"
-        }
-    }
-
-    private var connectionActionSystemImage: String {
-        isSelectedModeRunning ? "stop.fill" : "play.fill"
-    }
-
-}
-
 private struct PortTextField: View {
     let title: String
     @Binding var text: String
@@ -800,7 +677,7 @@ private struct PrivilegedFeatureNotice: View {
 }
 
 private struct NulConnectStatisticsSettingsView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var trafficStore: NulConnectTrafficStore
 
     var body: some View {
         Form {
@@ -809,7 +686,7 @@ private struct NulConnectStatisticsSettingsView: View {
                     trafficMetric(
                         title: "下载",
                         value: NulConnectTrafficFormatter.rate(
-                            model.trafficStatistics.downloadBytesPerSecond
+                            trafficStore.statistics.downloadBytesPerSecond
                         ),
                         systemImage: "arrow.down",
                         color: .blue
@@ -817,7 +694,7 @@ private struct NulConnectStatisticsSettingsView: View {
                     trafficMetric(
                         title: "上传",
                         value: NulConnectTrafficFormatter.rate(
-                            model.trafficStatistics.uploadBytesPerSecond
+                            trafficStore.statistics.uploadBytesPerSecond
                         ),
                         systemImage: "arrow.up",
                         color: .green
@@ -830,19 +707,20 @@ private struct NulConnectStatisticsSettingsView: View {
                 LabeledContent(
                     "已下载",
                     value: NulConnectTrafficFormatter.bytes(
-                        model.trafficStatistics.counters.downloadedBytes
+                        trafficStore.statistics.counters.downloadedBytes
                     )
                 )
                 LabeledContent(
                     "已上传",
                     value: NulConnectTrafficFormatter.bytes(
-                        model.trafficStatistics.counters.uploadedBytes
+                        trafficStore.statistics.counters.uploadedBytes
                     )
                 )
                 LabeledContent("连接时长", value: connectionDurationText)
             }
         }
         .formStyle(.grouped)
+        .textSelection(.disabled)
     }
 
     private func trafficMetric(
@@ -870,10 +748,10 @@ private struct NulConnectStatisticsSettingsView: View {
     }
 
     private var connectionDurationText: String {
-        guard model.trafficStatistics.connectionStartedAt != nil else {
+        guard trafficStore.statistics.connectionStartedAt != nil else {
             return "--"
         }
-        let seconds = Int(model.trafficStatistics.connectionDuration)
+        let seconds = Int(trafficStore.statistics.connectionDuration)
         let hours = seconds / 3_600
         let minutes = (seconds % 3_600) / 60
         let remainingSeconds = seconds % 60
@@ -885,7 +763,7 @@ private struct NulConnectStatisticsSettingsView: View {
 
 }
 
-private enum NulConnectTrafficFormatter {
+enum NulConnectTrafficFormatter {
     static func rate(_ value: Double) -> String {
         format(max(0, value), suffix: "/s")
     }
@@ -1008,17 +886,15 @@ private struct SettingsActionRow: View {
 }
 
 #Preview {
+    let model = AppModel.bootstrap()
     ContentView()
-        .environmentObject(AppModel.bootstrap())
+        .environmentObject(model)
+        .environmentObject(model.trafficStore)
 }
 
 #Preview("Settings") {
+    let model = AppModel.bootstrap()
     NulConnectSettingsView()
-        .environmentObject(AppModel.bootstrap())
-}
-
-#Preview("Menu Bar") {
-    NulConnectMenuBarContent()
-        .environmentObject(AppModel.bootstrap())
-        .environmentObject(NulConnectWindowCoordinator())
+        .environmentObject(model)
+        .environmentObject(model.trafficStore)
 }

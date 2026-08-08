@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 import SwiftUI
 
 @MainActor
@@ -24,8 +24,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var helperActivityState: NulConnectHelperActivityState = .idle
     @Published private(set) var helperVersionText: String = "未安装"
     @Published private(set) var bundledHelperVersionText: String = "读取中"
-    @Published private(set) var trafficStatistics: NulConnectTrafficStatistics = .empty
     @Published private(set) var isLoggingOut = false
+
+    let trafficStore = NulConnectTrafficStore()
 
     private let authEngine = NulConnectAuthEngine()
     private let profileStore: ProfileStore
@@ -43,6 +44,7 @@ final class AppModel: ObservableObject {
     private var tunnelHealthTask: Task<Void, Never>?
     private var sessionKeepAliveTask: Task<Void, Never>?
     private var trafficSamplingTask: Task<Void, Never>?
+    private var pendingConnectionMode: NulConnectRouteMode?
     private var isRecoveringTunnelSession = false
     private var helperVersionsLoaded = false
     private var storedSessionMaterial: ATRSessionMaterial?
@@ -51,6 +53,11 @@ final class AppModel: ObservableObject {
     private var isMenuBarVisible = false
     private var trafficCounterOffset: NulConnectTrafficCounters = .zero
     private var previousTrafficSample: (counters: NulConnectTrafficCounters, instant: ContinuousClock.Instant)?
+
+    private var trafficStatistics: NulConnectTrafficStatistics {
+        get { trafficStore.statistics }
+        set { trafficStore.update(newValue) }
+    }
 
     init(
         profileStore: ProfileStore,
@@ -391,10 +398,12 @@ final class AppModel: ObservableObject {
         guard !isLoggingOut else { return }
         isLoggingOut = true
         bannerMessage = "正在退出登录"
+        pendingConnectionMode = nil
         Task { [weak self] in
             guard let self else { return }
             await self.prepareForApplicationTermination()
             await self.authEngine.reset()
+            await NulConnectWebDataStore.clearLoginData()
             do {
                 try self.sessionVault.clear()
                 try self.resourceStore.delete()
@@ -852,11 +861,28 @@ final class AppModel: ObservableObject {
         loginTask?.cancel()
         loginTask = nil
         webLoginSession = nil
+        pendingConnectionMode = nil
         if case .succeeded = loginState {
             return
         }
         loginState = .idle
         bannerMessage = "已取消登录"
+    }
+
+    private func requestWebLogin(toContinue mode: NulConnectRouteMode) {
+        pendingConnectionMode = mode
+        startWebLogin()
+    }
+
+    private func continuePendingConnectionAfterLogin() {
+        guard let mode = pendingConnectionMode else { return }
+        pendingConnectionMode = nil
+        switch mode {
+        case .proxy:
+            startProxyMode()
+        case .tun:
+            startTunnelMode()
+        }
     }
 
     func completeWebLogin(with callbackURL: URL) {
@@ -893,6 +919,9 @@ final class AppModel: ObservableObject {
                         await MainActor.run {
                             self.saveResourceSnapshot(snapshot)
                         }
+                    }
+                    await MainActor.run {
+                        self.continuePendingConnectionAfterLogin()
                     }
                 case .callbackURL(let url, let kind):
                     await MainActor.run {
@@ -998,7 +1027,7 @@ final class AppModel: ObservableObject {
             return
         }
         guard storedSessionMaterial != nil else {
-            startWebLogin()
+            requestWebLogin(toContinue: .proxy)
             return
         }
         guard proxyService == nil else {
@@ -1060,6 +1089,9 @@ final class AppModel: ObservableObject {
                     )
                     self.bannerMessage = "启动代理失败: \(error.localizedDescription)"
                     self.lastPersistenceErrorMessage = error.localizedDescription
+                    if Self.requiresWebLogin(error) {
+                        self.requestWebLogin(toContinue: .proxy)
+                    }
                 }
             }
         }
@@ -1133,7 +1165,7 @@ final class AppModel: ObservableObject {
             return
         }
         guard storedSessionMaterial != nil else {
-            startWebLogin()
+            requestWebLogin(toContinue: .tun)
             return
         }
         guard !isTunnelRunning && !isTunnelBusy else {
@@ -1203,6 +1235,9 @@ final class AppModel: ObservableObject {
                     )
                     self.bannerMessage = "启动 VPN 失败: \(error.localizedDescription)"
                     self.lastPersistenceErrorMessage = error.localizedDescription
+                    if Self.requiresWebLogin(error) {
+                        self.requestWebLogin(toContinue: .tun)
+                    }
                 }
             }
         }
@@ -1313,6 +1348,7 @@ final class AppModel: ObservableObject {
             }
             tunnelState = .failed(message: "登录会话已失效")
             failProxySessionInvalidated(error)
+            requestWebLogin(toContinue: .tun)
             return
         }
 
@@ -1325,6 +1361,7 @@ final class AppModel: ObservableObject {
 
         guard storedSessionMaterial != nil else {
             failProxySessionInvalidated(error)
+            requestWebLogin(toContinue: .proxy)
             return
         }
 
@@ -1370,6 +1407,7 @@ final class AppModel: ObservableObject {
             } catch {
                 await MainActor.run {
                     self.failProxySessionInvalidated(error)
+                    self.requestWebLogin(toContinue: .proxy)
                 }
             }
         }
@@ -1409,6 +1447,16 @@ final class AppModel: ObservableObject {
             return text.contains("stored session is not logged in") || text.contains("not logged in") || text.contains("invalid sid")
         default:
             return false
+        }
+    }
+
+    private nonisolated static func requiresWebLogin(_ error: Error) -> Bool {
+        switch error {
+        case NulConnectProxyServiceError.missingSession,
+             NulConnectProxyServiceError.sessionExpired:
+            return true
+        default:
+            return isStoredSessionInvalidError(error)
         }
     }
 
