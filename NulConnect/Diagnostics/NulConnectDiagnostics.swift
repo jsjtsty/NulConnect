@@ -3,35 +3,36 @@ import Darwin
 
 nonisolated enum NulConnectDiagnostics {
     static func log(_ message: String) {
-        #if DEBUG && NULCONNECT_ENABLE_LOGS
+#if NULCONNECT_VERBOSE_LOGS
         print(message)
-        #else
+#else
         _ = message
-        #endif
+#endif
     }
 
     static func logCommand(label: String, executable: String, arguments: [String], timeoutSeconds: TimeInterval = 3) async {
-        #if DEBUG && NULCONNECT_ENABLE_LOGS
+#if NULCONNECT_VERBOSE_LOGS
         let output = await runCommand(executable: executable, arguments: arguments, timeoutSeconds: timeoutSeconds)
         log("[NulConnect][Diagnostics] \(label):\n\(output)")
-        #else
+#else
         _ = (label, executable, arguments, timeoutSeconds)
-        #endif
+#endif
     }
 
     static func logNetworkSnapshot(reason: String) async {
-        #if DEBUG && NULCONNECT_ENABLE_LOGS
+#if NULCONNECT_VERBOSE_LOGS
         log("[NulConnect][Diagnostics] network snapshot begin: \(reason)")
         await logCommand(label: "route default", executable: "/sbin/route", arguments: ["-n", "get", "default"])
         await logCommand(label: "route 198.18.0.1", executable: "/sbin/route", arguments: ["-n", "get", "198.18.0.1"])
         await logCommand(label: "netstat inet", executable: "/usr/sbin/netstat", arguments: ["-rn", "-f", "inet"])
         await logCommand(label: "dns", executable: "/usr/sbin/scutil", arguments: ["--dns"], timeoutSeconds: 5)
         log("[NulConnect][Diagnostics] network snapshot end: \(reason)")
-        #else
+#else
         _ = reason
-        #endif
+#endif
     }
 
+#if NULCONNECT_VERBOSE_LOGS
     private static func runCommand(executable: String, arguments: [String], timeoutSeconds: TimeInterval) async -> String {
         await Task.detached(priority: .utility) {
             let process = Process()
@@ -65,4 +66,5 @@ nonisolated enum NulConnectDiagnostics {
             return trimmed.isEmpty ? "(empty)" : trimmed
         }.value
     }
+#endif
 }

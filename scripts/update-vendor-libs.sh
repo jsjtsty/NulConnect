@@ -23,6 +23,9 @@ LIBREATRUST_DIR="$RUST_ROOT/libreatrust"
 HELPER_DIR="$RUST_ROOT/nulconnect-helper"
 VENDOR_DIR="$XCODE_ROOT/Vendor/libreatrust"
 
+# Set to 1 when producing a diagnostic build. Keep this at 0 for normal builds.
+ENABLE_VERBOSE_LOGS="${ENABLE_VERBOSE_LOGS:-0}"
+
 if [[ ! -d "$LIBREATRUST_DIR" ]]; then
   echo "error: missing libreatrust directory: $LIBREATRUST_DIR" >&2
   exit 1
@@ -39,10 +42,18 @@ mkdir -p \
   "$VENDOR_DIR/include"
 
 echo "building libreatrust..."
-cargo build --release --manifest-path "$LIBREATRUST_DIR/Cargo.toml"
+if [[ "$ENABLE_VERBOSE_LOGS" == "1" ]]; then
+  cargo build --release --manifest-path "$LIBREATRUST_DIR/Cargo.toml" --features verbose-logs
+else
+  cargo build --release --manifest-path "$LIBREATRUST_DIR/Cargo.toml"
+fi
 
 echo "building nulconnect-helper..."
-cargo build --release --manifest-path "$HELPER_DIR/Cargo.toml" --bin nulconnect-helper
+if [[ "$ENABLE_VERBOSE_LOGS" == "1" ]]; then
+  cargo build --release --manifest-path "$HELPER_DIR/Cargo.toml" --features verbose-logs --bin nulconnect-helper
+else
+  cargo build --release --manifest-path "$HELPER_DIR/Cargo.toml" --bin nulconnect-helper
+fi
 
 cp "$LIBREATRUST_DIR/target/release/libreatrust.dylib" "$VENDOR_DIR/dynamic/libreatrust.dylib"
 cp "$LIBREATRUST_DIR/target/release/libreatrust.a" "$VENDOR_DIR/static/libreatrust.a"

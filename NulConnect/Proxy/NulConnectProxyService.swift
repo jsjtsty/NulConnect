@@ -73,7 +73,6 @@ final class NulConnectProxyService {
         }
 
         let l3KeepAliveSession = try client.openL3()
-        try l3KeepAliveSession.sendHeartbeat()
         self.l3KeepAliveSession = l3KeepAliveSession
         NulConnectDiagnostics.log("[NulConnect][Proxy] dedicated L3 keep-alive session ready")
 
