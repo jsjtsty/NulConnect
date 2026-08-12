@@ -1005,7 +1005,7 @@ final class AppModel: ObservableObject {
                 )
                 service.onSessionInvalidated = { [weak self] error in
                     Task { @MainActor [weak self] in
-                        self?.handleProxySessionInvalidated(error)
+                        await self?.handleProxySessionInvalidated(error)
                     }
                 }
                 let endpoint = try await service.start()
@@ -1068,16 +1068,15 @@ final class AppModel: ObservableObject {
         proxyTask = Task { [weak self] in
             guard let self else { return }
             await self.disableSystemProxy()
-            await MainActor.run {
-                self.finishStoppingProxyMode()
-            }
+            await self.finishStoppingProxyMode()
         }
     }
 
-    private func finishStoppingProxyMode() {
+    private func finishStoppingProxyMode() async {
         captureProxyTrafficBeforeStop()
-        proxyService?.stop()
+        let service = proxyService
         proxyService = nil
+        await stopProxyServiceOffMainActor(service)
         proxyTask = nil
         proxyState = .stopped
         connectionState = NulConnectConnectionState(
@@ -1087,6 +1086,13 @@ final class AppModel: ObservableObject {
         )
         bannerMessage = "代理模式已停止"
         finishTrafficSession()
+    }
+
+    private func stopProxyServiceOffMainActor(_ service: NulConnectProxyService?) async {
+        guard let service else { return }
+        await Task.detached(priority: .utility) {
+            service.stop()
+        }.value
     }
 
     func startTunnelMode() {
@@ -1169,11 +1175,15 @@ final class AppModel: ObservableObject {
             } catch {
                 NulConnectDiagnostics.log("[NulConnect][Tunnel] startTunnelMode: failed error=\(error.localizedDescription)")
                 try? await tunnelManager.stop()
+                let tunnelProxyService = await MainActor.run {
+                    let service = self.tunnelProxyService
+                    self.tunnelProxyService = nil
+                    return service
+                }
+                await self.stopProxyServiceOffMainActor(tunnelProxyService)
                 await MainActor.run {
                     self.stopTunnelHealthMonitor()
                     self.isRecoveringTunnelSession = false
-                    self.tunnelProxyService?.stop()
-                    self.tunnelProxyService = nil
                     self.tunnelState = .failed(message: error.localizedDescription)
                     self.connectionState = NulConnectConnectionState(
                         phase: .failed,
@@ -1198,8 +1208,9 @@ final class AppModel: ObservableObject {
         if tunnelProxyService != nil || isTunnelRunning || isTunnelBusy {
             await captureTunnelTrafficBeforeStop()
             try? await tunnelManager?.stop()
-            tunnelProxyService?.stop()
+            let service = tunnelProxyService
             tunnelProxyService = nil
+            await stopProxyServiceOffMainActor(service)
             tunnelTask = nil
             tunnelState = .stopped
         }
@@ -1210,8 +1221,9 @@ final class AppModel: ObservableObject {
 
         if proxyService != nil {
             captureProxyTrafficBeforeStop()
-            proxyService?.stop()
+            let service = proxyService
             proxyService = nil
+            await stopProxyServiceOffMainActor(service)
             proxyTask = nil
             proxyState = .stopped
         }
@@ -1250,9 +1262,13 @@ final class AppModel: ObservableObject {
             do {
                 await self.captureTunnelTrafficBeforeStop()
                 try await self.tunnelManager?.stop()
-                await MainActor.run {
-                    self.tunnelProxyService?.stop()
+                let tunnelProxyService = await MainActor.run {
+                    let service = self.tunnelProxyService
                     self.tunnelProxyService = nil
+                    return service
+                }
+                await self.stopProxyServiceOffMainActor(tunnelProxyService)
+                await MainActor.run {
                     self.tunnelTask = nil
                     self.tunnelState = .stopped
                     self.connectionState = NulConnectConnectionState(
@@ -1278,13 +1294,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func handleProxySessionInvalidated(_ error: Error) {
+    private func handleProxySessionInvalidated(_ error: Error) async {
         print("[NulConnect][Proxy] session invalidated: \(error)")
         let wasTunnelMode = tunnelProxyService != nil || isTunnelRunning || isTunnelBusy
         if wasTunnelMode {
             stopTunnelHealthMonitor()
-            tunnelProxyService?.stop()
+            let service = tunnelProxyService
             tunnelProxyService = nil
+            await stopProxyServiceOffMainActor(service)
             tunnelTask?.cancel()
             tunnelTask = nil
             Task { [tunnelManager] in
@@ -1297,8 +1314,9 @@ final class AppModel: ObservableObject {
         }
 
         captureProxyTrafficBeforeStop()
-        proxyService?.stop()
+        let service = proxyService
         proxyService = nil
+        await stopProxyServiceOffMainActor(service)
         proxyTask?.cancel()
         proxyTask = nil
 
@@ -1330,7 +1348,7 @@ final class AppModel: ObservableObject {
                 )
                 service.onSessionInvalidated = { [weak self] error in
                     Task { @MainActor [weak self] in
-                        self?.handleProxySessionInvalidated(error)
+                        await self?.handleProxySessionInvalidated(error)
                     }
                 }
                 let endpoint = try await service.start()

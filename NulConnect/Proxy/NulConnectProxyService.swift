@@ -23,7 +23,7 @@ enum NulConnectProxyServiceError: LocalizedError {
     }
 }
 
-final class NulConnectProxyService {
+nonisolated final class NulConnectProxyService: @unchecked Sendable {
     var onSessionInvalidated: (@Sendable (Error) -> Void)?
 
     private let client: ATRClient
