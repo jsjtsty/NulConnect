@@ -30,7 +30,6 @@ nonisolated final class NulConnectProxyService: @unchecked Sendable {
     private let listenHost: String
     private let listenPort: UInt16
     private var service: ATRProxyService?
-    private var l3KeepAliveSession: ATRL3Tunnel?
     private var eventMonitorTask: Task<Void, Never>?
     private(set) var endpoint: NulConnectProxyEndpoint?
 
@@ -72,10 +71,6 @@ nonisolated final class NulConnectProxyService: @unchecked Sendable {
             return endpoint
         }
 
-        let l3KeepAliveSession = try client.openL3()
-        self.l3KeepAliveSession = l3KeepAliveSession
-        NulConnectDiagnostics.log("[NulConnect][Proxy] dedicated L3 keep-alive session ready")
-
         NulConnectDiagnostics.log("[NulConnect][Proxy] start: listen=\(listenHost):\(listenPort) socks5=true http=true")
         let service = try client.startProxyService(
             configuration: ATRProxyServiceConfiguration(
@@ -104,9 +99,6 @@ nonisolated final class NulConnectProxyService: @unchecked Sendable {
         }
         eventMonitorTask?.cancel()
         eventMonitorTask = nil
-        try? l3KeepAliveSession?.close()
-        l3KeepAliveSession = nil
-        NulConnectDiagnostics.log("[NulConnect][Proxy] dedicated L3 keep-alive session stopped")
         try? service?.stop()
         service = nil
         endpoint = nil

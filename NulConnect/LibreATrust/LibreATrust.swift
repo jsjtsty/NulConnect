@@ -392,17 +392,6 @@ nonisolated final class ATRClient {
         }
     }
 
-    func openL3() throws -> ATRL3Tunnel {
-        try withRaw { raw in
-            var tunnel: OpaquePointer?
-            try check(atr_client_open_l3(raw, &tunnel))
-            guard let tunnel else {
-                throw LibreATrustError.internalError("l3 tunnel is nil")
-            }
-            return ATRL3Tunnel(raw: tunnel)
-        }
-    }
-
     func startProxyService(configuration: ATRProxyServiceConfiguration) throws -> ATRProxyService {
         try withRaw { raw in
             try withProxyServiceConfiguration(configuration) { config in
@@ -524,73 +513,6 @@ nonisolated final class ATRUdpTunnel {
     private func withRaw<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
         guard let raw else {
             throw LibreATrustError.invalidState("udp tunnel is released")
-        }
-        return try body(raw)
-    }
-}
-
-nonisolated final class ATRL3Tunnel {
-    private var raw: OpaquePointer?
-
-    init(raw: OpaquePointer) {
-        self.raw = raw
-    }
-
-    deinit {
-        if let raw {
-            atr_l3_tunnel_free(raw)
-        }
-    }
-
-    func sendHeartbeat() throws {
-        try withRaw { raw in
-            try check(atr_l3_tunnel_send_heartbeat(raw))
-        }
-    }
-
-    func close() throws {
-        try withRaw { raw in
-            try check(atr_l3_tunnel_close(raw))
-        }
-    }
-
-    func virtualIPs() throws -> [String] {
-        try withRaw { raw in
-            var list = atr_string_list_t(items: nil, len: 0)
-            try check(atr_l3_tunnel_get_virtual_ips(raw, &list))
-            defer { atr_string_list_free(&list) }
-            return decodeStringList(list)
-        }
-    }
-
-    func readPacket(maxLength: Int = 65_535) throws -> Data {
-        try withRaw { raw in
-            var buffer = [UInt8](repeating: 0, count: maxLength)
-            var outLen: Int = 0
-            let status = buffer.withUnsafeMutableBufferPointer { ptr in
-                atr_l3_tunnel_read_packet(raw, ptr.baseAddress, ptr.count, &outLen)
-            }
-            try check(status)
-            return Data(buffer.prefix(outLen))
-        }
-    }
-
-    func writePacket(_ packet: Data) throws -> Int {
-        try withRaw { raw in
-            try packet.withUnsafeBytes { bytes in
-                guard let baseAddress = bytes.bindMemory(to: UInt8.self).baseAddress else {
-                    throw LibreATrustError.invalidArgument("packet is empty")
-                }
-                var outLen: Int = 0
-                try check(atr_l3_tunnel_write_packet(raw, baseAddress, packet.count, &outLen))
-                return outLen
-            }
-        }
-    }
-
-    private func withRaw<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
-        guard let raw else {
-            throw LibreATrustError.invalidState("l3 tunnel is released")
         }
         return try body(raw)
     }
