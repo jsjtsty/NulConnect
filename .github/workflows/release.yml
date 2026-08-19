@@ -34,6 +34,9 @@ jobs:
       - name: Download prebuilt dependencies
         run: ./scripts/prepare-dependencies.sh --arch "${{ matrix.arch }}"
 
+      - name: Install DMG packaging tool
+        run: brew install create-dmg
+
       - name: Build application
         run: |
           xcodebuild \

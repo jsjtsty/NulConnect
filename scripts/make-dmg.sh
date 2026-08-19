@@ -101,6 +101,7 @@ else
   trap cleanup EXIT
 
   cp -R "$APP_PATH" "$staging_dir/"
+  ln -s /Applications "$staging_dir/Applications"
   hdiutil create \
     -volname "$volume_name" \
     -srcfolder "$staging_dir" \
