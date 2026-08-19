@@ -53,10 +53,10 @@ Opening `NulConnect.xcodeproj` in Xcode also runs the dependency preparation pha
 
 ## Dependencies
 
-The application currently consumes the following prebuilt releases:
+The application currently consumes prebuilt artifacts from these projects:
 
-- [libreatrust v0.2.2](https://github.com/jsjtsty/libreatrust/releases/tag/v0.2.2)
-- [nulconnect-helper v0.2.2](https://github.com/jsjtsty/nulconnect-helper/releases/tag/v0.2.2)
+- [libreatrust v0.2.2](https://github.com/jsjtsty/libreatrust)
+- [nulconnect-helper v0.2.2](https://github.com/jsjtsty/nulconnect-helper)
 
 Downloaded files are stored under `.build/`, which is ignored by Git. The versions can be overridden when testing another compatible release:
 
