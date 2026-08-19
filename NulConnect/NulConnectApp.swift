@@ -133,7 +133,7 @@ struct NulConnectApp: App {
                 .environmentObject(windowCoordinator)
         }
 
-        Window("HIT 登录", id: "web-login") {
+        Window("Web 登录", id: "web-login") {
             NulConnectWebLoginWindow()
                 .environmentObject(model)
                 .environmentObject(windowCoordinator)

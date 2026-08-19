@@ -4,3 +4,5 @@ xcuserdata/
 DerivedData/
 dist/
 build/
+.build/
+Vendor/

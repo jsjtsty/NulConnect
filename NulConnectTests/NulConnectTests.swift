@@ -55,14 +55,21 @@ struct NulConnectTests {
     }
 
     @Test func loginCallbackPolicyValidatesCASAndOAuth2() throws {
-        let casPolicy = NulConnectWebLoginCapturePolicy.cas(baseHost: "ivpn.hit.edu.cn")
+        let allowedHosts = Set(["ivpn.hit.edu.cn", "ids-hit-edu-cn-s.ivpn.hit.edu.cn"])
+        let casPolicy = NulConnectWebLoginCapturePolicy.cas(
+            baseHost: "ivpn.hit.edu.cn",
+            allowedHosts: allowedHosts
+        )
         let casURL = URL(string: "https://ids-hit-edu-cn-s.ivpn.hit.edu.cn/passport/v1/auth/cas?ticket=abc123")!
         #expect(casPolicy.shouldCapture(casURL))
         let normalizedCASURL = try casPolicy.validate(casURL)
         #expect(normalizedCASURL.host == "ivpn.hit.edu.cn")
         #expect(normalizedCASURL.query?.contains("ticket=abc123") == true)
 
-        let oauthPolicy = NulConnectWebLoginCapturePolicy.httpsOauth2(baseHost: "ivpn.hit.edu.cn")
+        let oauthPolicy = NulConnectWebLoginCapturePolicy.httpsOauth2(
+            baseHost: "ivpn.hit.edu.cn",
+            allowedHosts: allowedHosts
+        )
         let oauthURL = URL(string: "https://ivpn.hit.edu.cn/passport/v1/auth/httpsOauth2?code=code123&state=null")!
         #expect(oauthPolicy.shouldCapture(oauthURL))
         let normalizedOAuthURL = try oauthPolicy.validate(oauthURL)

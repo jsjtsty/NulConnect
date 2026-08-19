@@ -1,0 +1,99 @@
+name: NulConnect CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nulconnect-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            os: macos-latest
+          - arch: x86_64
+            os: macos-15-intel
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Cache prebuilt Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: nulconnect-dependencies-${{ matrix.arch }}-${{ hashFiles('scripts/prepare-dependencies.sh') }}
+
+      - name: Download prebuilt dependencies
+        run: ./scripts/prepare-dependencies.sh --arch "${{ matrix.arch }}"
+
+      - name: Build application
+        run: |
+          xcodebuild \
+            -project NulConnect.xcodeproj \
+            -scheme NulConnect \
+            -configuration Release \
+            -sdk macosx \
+            -arch "${{ matrix.arch }}" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Package application
+        run: |
+          set -euo pipefail
+          app="build/DerivedData/Build/Products/Release/NulConnect.app"
+          test -d "$app"
+          mkdir -p dist
+          ./scripts/make-dmg.sh "$app" dist
+
+      - name: Upload application artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: NulConnect-macos-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  tests:
+    name: Unit tests
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Cache prebuilt Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: nulconnect-dependencies-arm64-${{ hashFiles('scripts/prepare-dependencies.sh') }}
+
+      - name: Download prebuilt dependencies
+        run: ./scripts/prepare-dependencies.sh --arch arm64
+
+      - name: Run tests
+        run: |
+          xcodebuild \
+            -project NulConnect.xcodeproj \
+            -scheme NulConnect \
+            -configuration Debug \
+            -sdk macosx \
+            -destination 'platform=macOS' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            -only-testing:NulConnectTests \
+            test

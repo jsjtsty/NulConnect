@@ -4,6 +4,7 @@ actor NulConnectAuthEngine {
     private var session: ATRAuthSession?
     private var configuration: ATRAuthConfiguration?
     private var callbackDeviceID: String?
+    private var callbackCapturePolicy: NulConnectWebLoginCapturePolicy?
 
     func loadMethods(configuration: ATRAuthConfiguration) async throws -> [ATRAuthMethod] {
         let (session, methods) = try await NulConnectAuthWorker.run {
@@ -20,15 +21,19 @@ actor NulConnectAuthEngine {
         guard let session, let configuration else {
             throw NulConnectLoginError.noSession
         }
-        guard let capturePolicy = Self.capturePolicy(for: method, baseHost: configuration.serverHost) else {
-            throw NulConnectLoginError.unsupportedAuthType(method.authType)
-        }
-
         let startURL = try await NulConnectAuthWorker.run {
             try session.prepareCallbackLogin(deviceID: deviceID)
             return try session.resolveLoginURL(method.loginURL)
         }
+        guard let capturePolicy = Self.capturePolicy(
+            for: method,
+            baseHost: configuration.serverHost,
+            callbackHost: startURL.host
+        ) else {
+            throw NulConnectLoginError.unsupportedAuthType(method.authType)
+        }
         callbackDeviceID = deviceID
+        callbackCapturePolicy = capturePolicy
         return NulConnectWebLoginSession(
             id: UUID(),
             method: method,
@@ -42,13 +47,16 @@ actor NulConnectAuthEngine {
     }
 
     func completeWebLogin(callbackURL: URL, method: ATRAuthMethod) async throws -> ATRAuthChallenge {
-        guard let session, let configuration else {
+        guard let session, let _ = configuration else {
             throw NulConnectLoginError.noSession
         }
         guard let callbackDeviceID else {
             throw NulConnectLoginError.noSession
         }
-        let validatedURL = try Self.validateCallbackURL(callbackURL, method: method, baseHost: configuration.serverHost)
+        guard let callbackCapturePolicy else {
+            throw NulConnectLoginError.noSession
+        }
+        let validatedURL = try callbackCapturePolicy.validate(callbackURL)
         return try await NulConnectAuthWorker.run {
             try session.completeCallback(validatedURL, deviceID: callbackDeviceID)
         }
@@ -72,6 +80,7 @@ actor NulConnectAuthEngine {
         self.session = session
         self.configuration = configuration
         self.callbackDeviceID = nil
+        self.callbackCapturePolicy = nil
         return refreshed
     }
 
@@ -79,24 +88,20 @@ actor NulConnectAuthEngine {
         session = nil
         configuration = nil
         callbackDeviceID = nil
+        callbackCapturePolicy = nil
     }
 
-    private nonisolated static func capturePolicy(for method: ATRAuthMethod, baseHost: String) -> NulConnectWebLoginCapturePolicy? {
-        switch method.authType {
-        case "auth/cas":
-            return .cas(baseHost: baseHost)
-        case "auth/httpsOauth2":
-            return .httpsOauth2(baseHost: baseHost)
-        default:
-            return nil
-        }
-    }
-
-    private nonisolated static func validateCallbackURL(_ callbackURL: URL, method: ATRAuthMethod, baseHost: String) throws -> URL {
-        guard let policy = capturePolicy(for: method, baseHost: baseHost) else {
-            throw NulConnectLoginError.unsupportedAuthType(method.authType)
-        }
-        return try policy.validate(callbackURL)
+    private nonisolated static func capturePolicy(
+        for method: ATRAuthMethod,
+        baseHost: String,
+        callbackHost: String? = nil
+    ) -> NulConnectWebLoginCapturePolicy? {
+        NulConnectWebLoginCapturePolicy.make(
+            authType: method.authType,
+            baseHost: baseHost,
+            loginURL: method.loginURL,
+            additionalHost: callbackHost
+        )
     }
 
 }

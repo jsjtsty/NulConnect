@@ -1,0 +1,82 @@
+name: NulConnect Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Release (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            os: macos-latest
+          - arch: x86_64
+            os: macos-15-intel
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Cache prebuilt Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: nulconnect-release-dependencies-${{ matrix.arch }}-${{ hashFiles('scripts/prepare-dependencies.sh') }}
+
+      - name: Download prebuilt dependencies
+        run: ./scripts/prepare-dependencies.sh --arch "${{ matrix.arch }}"
+
+      - name: Build application
+        run: |
+          xcodebuild \
+            -project NulConnect.xcodeproj \
+            -scheme NulConnect \
+            -configuration Release \
+            -sdk macosx \
+            -arch "${{ matrix.arch }}" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Package release
+        run: |
+          set -euo pipefail
+          app="build/DerivedData/Build/Products/Release/NulConnect.app"
+          test -d "$app"
+          mkdir -p dist
+          ./scripts/make-dmg.sh "$app" dist
+
+      - name: Upload release package
+        uses: actions/upload-artifact@v7
+        with:
+          name: NulConnect-release-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release packages
+        uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          pattern: NulConnect-release-*
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          files: release-assets/*

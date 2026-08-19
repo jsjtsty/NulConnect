@@ -5,8 +5,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 AUTH_FILE="${1:-$PROJECT_DIR/.auth}"
-HEADER_DIR="$PROJECT_DIR/Vendor/libreatrust/include"
-LIB_DIR="$PROJECT_DIR/Vendor/libreatrust/dynamic"
+"$PROJECT_DIR/scripts/prepare-dependencies.sh"
+DEPENDENCY_ROOT="${NULCONNECT_DEPENDENCY_ROOT:-$PROJECT_DIR/.build/dependencies/$(uname -m)}"
+HEADER_DIR="$DEPENDENCY_ROOT/libreatrust/include"
+LIB_DIR="$DEPENDENCY_ROOT/libreatrust/dynamic"
 LIBRARY="$LIB_DIR/libreatrust.dylib"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/nulconnect-password-auth.XXXXXX")"
 
@@ -26,8 +28,8 @@ if [[ ! -f "$LIBRARY" ]]; then
     exit 2
 fi
 
-if [[ "$(uname -m)" != "arm64" ]]; then
-    echo "error: the bundled libreatrust.dylib currently supports arm64 only" >&2
+if [[ "$(uname -m)" != "arm64" && "$(uname -m)" != "x86_64" ]]; then
+    echo "error: unsupported macOS architecture: $(uname -m)" >&2
     exit 2
 fi
 

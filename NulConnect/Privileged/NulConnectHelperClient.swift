@@ -462,15 +462,6 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             return resourceURL
         }
 
-        let developmentURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Vendor/libreatrust/dynamic/nulconnect-helper")
-        if FileManager.default.fileExists(atPath: developmentURL.path) {
-            return developmentURL
-        }
-
         throw NulConnectHelperClientError.bundledHelperNotFound
     }
 

@@ -148,22 +148,6 @@ struct NulConnectProfile: Codable, Sendable, Equatable {
         self.platform = try container.decode(String.self, forKey: .platform)
     }
 
-    func normalizedForHITAuth() -> NulConnectProfile {
-        var copy = self
-        if copy.localProxyPort == 0 {
-            copy.localProxyPort = Self.default.localProxyPort
-        }
-        if copy.clientType == "desktop" || copy.clientType.isEmpty {
-            copy.clientType = "SDPClient"
-        }
-        if copy.platform == "macOS" || copy.platform.isEmpty {
-            copy.platform = "Linux"
-        }
-        if copy.userAgent == "NulConnect/1.0" || copy.userAgent.isEmpty {
-            copy.userAgent = Self.default.userAgent
-        }
-        return copy
-    }
 }
 
 struct NulConnectSessionSummary: Codable, Sendable, Equatable {
@@ -329,8 +313,8 @@ struct NulConnectWebLoginSession: Identifiable, Sendable {
 }
 
 enum NulConnectWebLoginCapturePolicy: Sendable {
-    case cas(baseHost: String)
-    case httpsOauth2(baseHost: String)
+    case cas(baseHost: String, allowedHosts: Set<String>)
+    case httpsOauth2(baseHost: String, allowedHosts: Set<String>)
 
     nonisolated var hint: String {
         switch self {
@@ -360,12 +344,11 @@ enum NulConnectWebLoginCapturePolicy: Sendable {
         }
 
         switch self {
-        case .cas(let baseHost):
+        case .cas(let baseHost, let allowedHosts):
             guard let host = components.host else {
                 throw NulConnectLoginError.invalidCallbackURL("CAS 回调缺少主机名")
             }
-            let allowedHosts = [baseHost, "ids-hit-edu-cn-s.ivpn.hit.edu.cn"]
-            guard allowedHosts.contains(host) else {
+            guard allowedHosts.contains(Self.normalizedHost(host)) else {
                 throw NulConnectLoginError.invalidCallbackURL("CAS 回调主机不匹配")
             }
             guard components.path.contains("cas") else {
@@ -379,17 +362,18 @@ enum NulConnectWebLoginCapturePolicy: Sendable {
                 components.host = baseHost
                 return components.url ?? url
             }
-            if components.scheme == "http" && baseHost == "ivpn.hit.edu.cn" {
+            if components.scheme == "http" {
                 components.scheme = "https"
                 components.host = baseHost
                 return components.url ?? url
             }
             throw NulConnectLoginError.invalidCallbackURL("CAS 回调协议不正确")
-        case .httpsOauth2(let baseHost):
+        case .httpsOauth2(_, let allowedHosts):
             guard components.scheme == "https" else {
                 throw NulConnectLoginError.invalidCallbackURL("OAuth2 回调必须是 HTTPS")
             }
-            guard components.host == baseHost else {
+            guard let host = components.host,
+                  allowedHosts.contains(Self.normalizedHost(host)) else {
                 throw NulConnectLoginError.invalidCallbackURL("OAuth2 回调主机不匹配")
             }
             guard components.path == "/passport/v1/auth/httpsOauth2" else {
@@ -401,6 +385,39 @@ enum NulConnectWebLoginCapturePolicy: Sendable {
             }
             return components.url ?? url
         }
+    }
+
+    nonisolated static func make(
+        authType: String,
+        baseHost: String,
+        loginURL: String,
+        additionalHost: String? = nil
+    ) -> NulConnectWebLoginCapturePolicy? {
+        let normalizedBaseHost = normalizedHost(baseHost)
+        guard !normalizedBaseHost.isEmpty else {
+            return nil
+        }
+
+        var allowedHosts = Set([normalizedBaseHost])
+        if let loginHost = URL(string: loginURL)?.host {
+            allowedHosts.insert(normalizedHost(loginHost))
+        }
+        if let additionalHost {
+            allowedHosts.insert(normalizedHost(additionalHost))
+        }
+
+        switch authType {
+        case "auth/cas":
+            return .cas(baseHost: normalizedBaseHost, allowedHosts: allowedHosts)
+        case "auth/httpsOauth2":
+            return .httpsOauth2(baseHost: normalizedBaseHost, allowedHosts: allowedHosts)
+        default:
+            return nil
+        }
+    }
+
+    private nonisolated static func normalizedHost(_ value: String) -> String {
+        value.trimmingCharacters(in: CharacterSet(charactersIn: ". \n\r\t")).lowercased()
     }
 }
 
@@ -416,7 +433,7 @@ enum NulConnectLoginError: LocalizedError, Equatable {
         case .unsupportedAuthType(let value):
             return "暂不支持的 WebView 登录类型: \(value)"
         case .noWebLoginMethods:
-            return "未找到可用的 HIT WebView 登录方式"
+            return "未找到可用的 WebView 登录方式"
         case .noSession:
             return "登录会话尚未初始化"
         case .invalidCallbackURL(let message):

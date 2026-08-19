@@ -203,6 +203,10 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var isLocalProxyPortValid: Bool {
+        profile.localProxyPort > 0
+    }
+
     var isVPNConnectedOrConnecting: Bool {
         switch connectionState.phase {
         case .connecting, .connected, .disconnecting:
@@ -296,11 +300,11 @@ final class AppModel: ObservableObject {
         storedSessionMaterial != nil
     }
 
-    var needsHITLoginForProxy: Bool {
+    var needsLoginForProxy: Bool {
         !isReadyForProxyMode
     }
 
-    var needsHITLoginForTunnel: Bool {
+    var needsLoginForTunnel: Bool {
         !isReadyForTunnelMode
     }
 
@@ -630,14 +634,11 @@ final class AppModel: ObservableObject {
     }
 
     private func capturePolicy(for method: ATRAuthMethod) -> NulConnectWebLoginCapturePolicy? {
-        switch method.authType {
-        case "auth/cas":
-            return .cas(baseHost: profile.serverHost)
-        case "auth/httpsOauth2":
-            return .httpsOauth2(baseHost: profile.serverHost)
-        default:
-            return nil
-        }
+        NulConnectWebLoginCapturePolicy.make(
+            authType: method.authType,
+            baseHost: profile.serverHost,
+            loginURL: method.loginURL
+        )
     }
 
     private func refreshResourceSnapshotAfterLogin(session material: ATRSessionMaterial) async -> ATRResourceSnapshot? {
@@ -702,6 +703,9 @@ final class AppModel: ObservableObject {
         case .running(let endpoint):
             return endpoint.displayString
         default:
+            guard isLocalProxyPortValid else {
+                return "本地代理端口无效"
+            }
             return "127.0.0.1:\(runtimeProfile.localProxyPort)"
         }
     }
@@ -729,7 +733,7 @@ final class AppModel: ObservableObject {
 
         loginTask?.cancel()
         loginState = .loadingMethods
-        bannerMessage = "正在获取 HIT 登录方式"
+        bannerMessage = "正在获取登录方式"
         let runtimeProfile = self.runtimeProfile
         print("[NulConnect][Login] refresh methods start: serverHost='\(runtimeProfile.serverHost)' port=\(runtimeProfile.serverPort) loginDomain='\(runtimeProfile.loginDomain)' preferredAuthType='\(runtimeProfile.preferredAuthType ?? "")' clientType='\(runtimeProfile.clientType)' platform='\(runtimeProfile.platform)' allowInsecureTLS=\(runtimeProfile.allowInsecureTLS)")
 
@@ -769,7 +773,7 @@ final class AppModel: ObservableObject {
 
         loginTask?.cancel()
         loginState = .loadingMethods
-        bannerMessage = "正在准备 HIT WebView 登录"
+        bannerMessage = "正在准备 WebView 登录"
 
         let configuration = authConfiguration
         loginTask = Task { [authEngine] in
@@ -842,7 +846,7 @@ final class AppModel: ObservableObject {
         }
 
         loginState = .finalizing
-        bannerMessage = "正在完成 HIT 登录"
+        bannerMessage = "正在完成登录"
         print("[NulConnect][Login] complete web login callbackURL='\(callbackURL.absoluteString)' methodAuthType='\(session.method.authType)' loginDomain='\(session.method.loginDomain)'")
 
         loginTask?.cancel()
@@ -862,7 +866,7 @@ final class AppModel: ObservableObject {
                                 updatedAt: .now
                             )
                         }
-                        self.bannerMessage = "HIT 登录成功"
+                        self.bannerMessage = "登录成功"
                     }
 
                     if let snapshot = await refreshResourceSnapshotAfterLogin(session: material) {
@@ -970,6 +974,10 @@ final class AppModel: ObservableObject {
     func startProxyMode() {
         guard effectiveRouteMode == .proxy else {
             bannerMessage = "当前不是代理模式"
+            return
+        }
+        guard isLocalProxyPortValid else {
+            bannerMessage = "请先设置有效的本地代理端口（1 到 65535）"
             return
         }
         guard !isTunnelRunning && !isTunnelBusy else {
@@ -1679,7 +1687,7 @@ final class AppModel: ObservableObject {
     }
 
     private var runtimeProfile: NulConnectProfile {
-        var profile = self.profile.normalizedForHITAuth()
+        var profile = self.profile
         if !isHelperInstalled {
             profile.routeMode = .proxy
             profile.useSystemProxy = false

@@ -113,7 +113,7 @@ struct ContentView: View {
     private var isPrimaryActionDisabled: Bool {
         switch model.effectiveRouteMode {
         case .proxy:
-            return isProxyBusy
+            return isProxyBusy || (!isProxyRunning && !model.isLocalProxyPortValid)
         case .tun:
             return !model.isTunnelFeatureAvailable || isTunnelBusy
         }
@@ -124,12 +124,12 @@ struct ContentView: View {
             if isTunnelRunning {
                 return "断开连接"
             }
-            return model.needsHITLoginForTunnel ? "登录并连接" : "连接"
+            return model.needsLoginForTunnel ? "登录并连接" : "连接"
         }
         if isProxyRunning {
             return "断开连接"
         }
-        return model.needsHITLoginForProxy ? "登录并连接" : "连接"
+        return model.needsLoginForProxy ? "登录并连接" : "连接"
     }
 
     private var primaryActionImage: String {
@@ -294,7 +294,7 @@ struct NulConnectSettingsView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("退出登录将停止当前连接，并删除本机保存的会话及 HIT Web 登录数据。")
+            Text("退出登录将停止当前连接，并删除本机保存的会话及 Web 登录数据。")
         }
         .confirmationDialog(
             "安装特权组件",
@@ -411,7 +411,7 @@ struct NulConnectSettingsView: View {
 
                     SettingsActionRow(
                         title: "登录",
-                        subtitle: "通过 HIT 统一身份认证登录到服务器。",
+                        subtitle: "通过统一身份认证登录到服务器。",
                         systemImage: "person.badge.key"
                     ) {
                         model.startWebLogin()
@@ -480,7 +480,15 @@ struct NulConnectSettingsView: View {
             Section("本地代理") {
                 PortTextField("监听端口", text: $localProxyPortDraft)
                     .onSubmit { commitLocalProxyPortDraft() }
+                    .onChange(of: localProxyPortDraft) { _, _ in
+                        commitLocalProxyPortDraft()
+                    }
                     .disabled(model.isProxyRunning || model.isProxyBusy || model.isTunnelRunning || model.isTunnelBusy)
+                if let localProxyPortError {
+                    Label(localProxyPortError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
             }
 
             Section("客户端参数") {
@@ -594,6 +602,9 @@ struct NulConnectSettingsView: View {
     }
 
     private func syncLocalProxyDraft() {
+        guard model.profile.localProxyPort > 0 else {
+            return
+        }
         let localProxyPort = String(model.profile.localProxyPort)
         if localProxyPortDraft != localProxyPort {
             localProxyPortDraft = localProxyPort
@@ -626,10 +637,26 @@ struct NulConnectSettingsView: View {
     }
 
     private func commitLocalProxyPortDraft() {
-        guard let parsed = UInt16(localProxyPortDraft.filter(\.isNumber)), parsed > 0 else {
+        let value = localProxyPortDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard localProxyPortError == nil, let parsed = UInt16(value), parsed > 0 else {
+            model.replaceProfile { $0.localProxyPort = 0 }
             return
         }
         model.replaceProfile { $0.localProxyPort = parsed }
+    }
+
+    private var localProxyPortError: String? {
+        let value = localProxyPortDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            return "请输入本地代理端口"
+        }
+        guard value.allSatisfy(\.isNumber) else {
+            return "端口号只能包含数字"
+        }
+        guard let parsed = UInt32(value), (1...UInt32(UInt16.max)).contains(parsed) else {
+            return "端口号必须在 1 到 65535 之间"
+        }
+        return nil
     }
 
     private func commitUserAgentDraft() {
