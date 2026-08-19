@@ -30,8 +30,8 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Cache prebuilt Rust dependencies
-        uses: actions/cache@v4
+      - name: Cache prebuilt native dependencies
+        uses: actions/cache@v5
         with:
           path: .build
           key: nulconnect-dependencies-${{ matrix.arch }}-${{ hashFiles('scripts/prepare-dependencies.sh') }}
@@ -60,11 +60,15 @@ jobs:
           test -d "$app"
           mkdir -p dist
           ./scripts/make-dmg.sh "$app" dist
+          version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")"
+          dmg="$(printf '%s\n' dist/*.dmg | head -n 1)"
+          test -f "$dmg"
+          mv "$dmg" "dist/NulConnect-${version}-autobuild-macos-${{ matrix.arch }}-${{ github.run_number }}.dmg"
 
       - name: Upload application artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: NulConnect-macos-${{ matrix.arch }}
+          name: NulConnect-autobuild-macos-${{ matrix.arch }}-${{ github.run_number }}
           path: dist/*
           if-no-files-found: error
 
@@ -75,8 +79,8 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Cache prebuilt Rust dependencies
-        uses: actions/cache@v4
+      - name: Cache prebuilt native dependencies
+        uses: actions/cache@v5
         with:
           path: .build
           key: nulconnect-dependencies-arm64-${{ hashFiles('scripts/prepare-dependencies.sh') }}

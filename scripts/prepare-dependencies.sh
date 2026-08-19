@@ -11,7 +11,7 @@ stages them for the Xcode project. No Rust toolchain is required.
 
 Environment overrides:
   LIBREATRUST_VERSION       libreatrust release tag (default: v0.2.2)
-  NULCONNECT_HELPER_VERSION helper release tag (default: v0.2.1)
+  NULCONNECT_HELPER_VERSION helper release tag (default: v0.2.2)
   NULCONNECT_DEPENDENCY_ROOT output directory for staged files
   NULCONNECT_DEPENDENCY_CACHE_DIR directory for downloaded archives
 EOF
@@ -48,7 +48,7 @@ case "$ARCH" in
 esac
 
 LIBREATRUST_VERSION="${LIBREATRUST_VERSION:-v0.2.2}"
-NULCONNECT_HELPER_VERSION="${NULCONNECT_HELPER_VERSION:-v0.2.1}"
+NULCONNECT_HELPER_VERSION="${NULCONNECT_HELPER_VERSION:-v0.2.2}"
 LIBREATRUST_REPOSITORY="${LIBREATRUST_REPOSITORY:-https://github.com/jsjtsty/libreatrust}"
 HELPER_REPOSITORY="${HELPER_REPOSITORY:-https://github.com/jsjtsty/nulconnect-helper}"
 DEPENDENCY_ROOT="${NULCONNECT_DEPENDENCY_ROOT:-$PROJECT_DIR/.build/dependencies/$ARCH}"
