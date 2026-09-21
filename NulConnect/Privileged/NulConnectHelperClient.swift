@@ -347,7 +347,9 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             request["id"] = UUID().uuidString
             let requestData = try JSONSerialization.data(withJSONObject: request)
             let requestLine = Data(requestData + Data([0x0a]))
-            print("[NulConnect][Helper] send: request=\(String(decoding: requestData, as: UTF8.self))")
+            // The "start_tun" request embeds session credentials (sid,
+            // sign key, cookies); never log the raw request body.
+            print("[NulConnect][Helper] send: request bytes=\(requestData.count)")
 
             let fd = socket(AF_UNIX, SOCK_STREAM, 0)
             if fd < 0 {
@@ -376,8 +378,7 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
 
             // Read response line
             let responseData = try Self.readLine(fd)
-            let responseStr = String(decoding: responseData, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            print("[NulConnect][Helper] send: response=\(responseStr)")
+            print("[NulConnect][Helper] send: response bytes=\(responseData.count)")
 
             guard let obj = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
                   let ok = obj["ok"] as? Bool else {

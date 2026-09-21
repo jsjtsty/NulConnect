@@ -2,6 +2,18 @@ import AppKit
 import SwiftUI
 import WebKit
 
+/// SSO callback/redirect URLs can carry one-time auth tickets or tokens in
+/// their query string (e.g. CAS `?ticket=...`), so logs must never include
+/// them — only scheme/host/path, which is enough to see where the flow is.
+private func loggableURL(_ url: URL) -> String {
+    guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+        return "<unparseable>"
+    }
+    components.query = nil
+    components.fragment = nil
+    return components.string ?? "<unparseable>"
+}
+
 struct NulConnectWebViewLoginView: NSViewRepresentable {
     let session: NulConnectWebLoginSession
     let onCaptured: (URL) -> Void
@@ -24,7 +36,7 @@ struct NulConnectWebViewLoginView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         context.coordinator.attach(webView)
-        print("[NulConnect][WebLogin] load startURL=\(session.startURL.absoluteString)")
+        print("[NulConnect][WebLogin] load startURL=\(loggableURL(session.startURL))")
         webView.load(URLRequest(url: session.startURL))
         return webView
     }
@@ -63,13 +75,13 @@ struct NulConnectWebViewLoginView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             let url = webView.url?.absoluteString ?? session.startURL.absoluteString
-            print("[NulConnect][WebLogin] didStartProvisionalNavigation url=\(url)")
+            print("[NulConnect][WebLogin] didStartProvisionalNavigation url=\(loggableURL(webView.url ?? session.startURL))")
             onStatusChange(url)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             let url = webView.url?.absoluteString ?? session.startURL.absoluteString
-            print("[NulConnect][WebLogin] didFinish url=\(url)")
+            print("[NulConnect][WebLogin] didFinish url=\(loggableURL(webView.url ?? session.startURL))")
             onStatusChange(url)
         }
 
@@ -87,7 +99,7 @@ struct NulConnectWebViewLoginView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
             let url = webView.url?.absoluteString ?? session.startURL.absoluteString
-            print("[NulConnect][WebLogin] didReceiveServerRedirectForProvisionalNavigation url=\(url)")
+            print("[NulConnect][WebLogin] didReceiveServerRedirectForProvisionalNavigation url=\(loggableURL(webView.url ?? session.startURL))")
             if didCapture {
                 return
             }
@@ -137,7 +149,7 @@ struct NulConnectWebViewLoginView: NSViewRepresentable {
         private func capture(_ url: URL) {
             guard !didCapture else { return }
             didCapture = true
-            print("[NulConnect][WebLogin] capture url=\(url.absoluteString)")
+            print("[NulConnect][WebLogin] capture url=\(loggableURL(url))")
             onStatusChange("已捕获回调地址")
             onCaptured(url)
             webView?.stopLoading()

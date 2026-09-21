@@ -2,6 +2,17 @@ import Combine
 import Foundation
 import SwiftUI
 
+/// SSO callback URLs can carry a one-time login ticket/token in their query
+/// string, so logs must strip it and keep only scheme/host/path.
+private func loggableURL(_ url: URL) -> String {
+    guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+        return "<unparseable>"
+    }
+    components.query = nil
+    components.fragment = nil
+    return components.string ?? "<unparseable>"
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var profile: NulConnectProfile {
@@ -644,7 +655,7 @@ final class AppModel: ObservableObject {
     private func refreshResourceSnapshotAfterLogin(session material: ATRSessionMaterial) async -> ATRResourceSnapshot? {
         do {
             let resourceBytes = try await authEngine.fetchClientResource()
-            print("[NulConnect][Login] fetched client resource bytes=\(resourceBytes.count) preview='\(Self.resourcePreview(resourceBytes))'")
+            print("[NulConnect][Login] fetched client resource bytes=\(resourceBytes.count)")
             let client = try ATRClient(configuration: clientConfiguration)
             try client.setSession(material)
             try client.setResource(resourceBytes, serviceHost: profile.serverHost)
@@ -665,7 +676,7 @@ final class AppModel: ObservableObject {
             throw NulConnectProxyServiceError.missingSession
         }
 
-        print("[NulConnect][Login] resume stored session start user='\(storedSessionMaterial.username)' deviceID='\(storedSessionMaterial.deviceID)'")
+        print("[NulConnect][Login] resume stored session start user='\(storedSessionMaterial.username)' deviceIDBytes=\(storedSessionMaterial.deviceID.utf8.count)")
         do {
             let refreshedMaterial = try await authEngine.resumeSession(storedSessionMaterial, configuration: authConfiguration)
             try sessionVault.save(refreshedMaterial)
@@ -674,7 +685,7 @@ final class AppModel: ObservableObject {
             print("[NulConnect][Login] resume stored session success user='\(refreshedMaterial.username)' sidBytes=\(refreshedMaterial.sid.utf8.count) cookies=\(refreshedMaterial.cookies.count)")
 
             let resourceBytes = try await authEngine.fetchClientResource()
-            print("[NulConnect][Login] refreshed client resource before proxy bytes=\(resourceBytes.count) preview='\(Self.resourcePreview(resourceBytes))'")
+            print("[NulConnect][Login] refreshed client resource before proxy bytes=\(resourceBytes.count)")
             let client = try ATRClient(configuration: clientConfiguration)
             try client.setSession(refreshedMaterial)
             try client.setResource(resourceBytes, serviceHost: profile.serverHost)
@@ -690,12 +701,6 @@ final class AppModel: ObservableObject {
             }
             throw error
         }
-    }
-
-    private nonisolated static func resourcePreview(_ data: Data) -> String {
-        String(decoding: data.prefix(600), as: UTF8.self)
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
     }
 
     var proxyEndpointText: String {
@@ -847,7 +852,7 @@ final class AppModel: ObservableObject {
 
         loginState = .finalizing
         bannerMessage = "正在完成登录"
-        print("[NulConnect][Login] complete web login callbackURL='\(callbackURL.absoluteString)' methodAuthType='\(session.method.authType)' loginDomain='\(session.method.loginDomain)'")
+        print("[NulConnect][Login] complete web login callbackURL='\(loggableURL(callbackURL))' methodAuthType='\(session.method.authType)' loginDomain='\(session.method.loginDomain)'")
 
         loginTask?.cancel()
         loginTask = Task { [authEngine] in
@@ -882,7 +887,8 @@ final class AppModel: ObservableObject {
                         self.loginState = .failed(message: "还需要继续处理回调: \(kind)")
                         self.bannerMessage = "登录需要继续跳转: \(url)"
                         self.lastPersistenceErrorMessage = nil
-                        print("[NulConnect][Login] complete web login returned callback kind=\(kind) url='\(url)'")
+                        let loggedURL = URL(string: url).map(loggableURL) ?? "<unparseable>"
+                        print("[NulConnect][Login] complete web login returned callback kind=\(kind) url='\(loggedURL)'")
                     }
                 case .captcha:
                     await MainActor.run {
