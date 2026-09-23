@@ -33,8 +33,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var bannerMessage: String?
     @Published private(set) var lastPersistenceErrorMessage: String?
     @Published private(set) var helperActivityState: NulConnectHelperActivityState = .idle
-    @Published private(set) var helperVersionText: String = "未安装"
-    @Published private(set) var bundledHelperVersionText: String = "读取中"
+    @Published private(set) var helperVersionText: String = NulConnectLocalization.text("Not installed")
+    @Published private(set) var bundledHelperVersionText: String = NulConnectLocalization.text("Loading")
     @Published private(set) var isLoggingOut = false
 
     let trafficStore = NulConnectTrafficStore()
@@ -56,6 +56,19 @@ final class AppModel: ObservableObject {
     private var trafficSamplingTask: Task<Void, Never>?
     private var pendingConnectionMode: NulConnectRouteMode?
     private var isRecoveringTunnelSession = false
+    private let networkMonitor = NulConnectNetworkMonitor()
+    private var networkChangeTask: Task<Void, Never>?
+    /// The user asked for VPN mode and has not stopped it. Cleared by an
+    /// explicit stop, sign-out, termination or an expired sign-in.
+    private var tunnelShouldStayConnected = false
+    /// VPN mode connected at least once since the user started it, so a
+    /// later failure is a dropped connection (reconnect automatically) rather
+    /// than a configuration problem (report it).
+    private var tunnelHasConnected = false
+    private var tunnelNetworkFingerprint: String?
+    private var tunnelNetworkLostAt: Date?
+    private var tunnelReconnectTask: Task<Void, Never>?
+    private var tunnelReconnectAttempt = 0
     private var helperVersionsLoaded = false
     private var storedSessionMaterial: ATRSessionMaterial?
     private var suppressProfilePersistence = false
@@ -97,6 +110,9 @@ final class AppModel: ObservableObject {
         self.storedSessionMaterial = storedSessionMaterial
         self.systemProxyManager = try? NulConnectSystemProxyManager()
         self.tunnelManager = try? NulConnectTunnelManager()
+        networkMonitor.start { [weak self] event in
+            self?.handleNetworkEvent(event)
+        }
     }
 
     static func bootstrap() -> AppModel {
@@ -137,7 +153,7 @@ final class AppModel: ObservableObject {
                     profile: profile,
                     sessionSummary: sessionSummary,
                     resourceSnapshot: resourceSnapshot,
-                    bannerMessage: "已回退到临时存储: \(error.localizedDescription)",
+                    bannerMessage: NulConnectLocalization.format("Fell back to temporary storage: %1$@", [String(describing: error.localizedDescription)]),
                     storedSessionMaterial: sessionMaterial
                 )
             } catch {
@@ -165,7 +181,7 @@ final class AppModel: ObservableObject {
         case .tun:
             return NulConnectRouteMode.tun.title
         case .proxy:
-            return effectiveSystemProxyEnabled ? "系统代理" : NulConnectRouteMode.proxy.title
+            return effectiveSystemProxyEnabled ? NulConnectLocalization.text("System Proxy") : NulConnectRouteMode.proxy.title
         }
     }
 
@@ -184,18 +200,18 @@ final class AppModel: ObservableObject {
     func refreshHelperVersion(force: Bool = false) {
         guard force || !helperVersionsLoaded else { return }
         helperVersionsLoaded = true
-        helperVersionText = isHelperInstalled ? "读取中" : "未安装"
-        bundledHelperVersionText = "读取中"
+        helperVersionText = isHelperInstalled ? NulConnectLocalization.text("Loading") : NulConnectLocalization.text("Not installed")
+        bundledHelperVersionText = NulConnectLocalization.text("Loading")
         Task {
             async let installed = helperClient.installedVersionString()
             async let bundled = helperClient.bundledVersionString()
-            helperVersionText = await installed ?? (isHelperInstalled ? "未知" : "未安装")
-            bundledHelperVersionText = await bundled ?? "未知"
+            helperVersionText = await installed ?? (isHelperInstalled ? NulConnectLocalization.text("Unknown") : NulConnectLocalization.text("Not installed"))
+            bundledHelperVersionText = await bundled ?? NulConnectLocalization.text("Unknown")
         }
     }
 
     var tunnelUnavailableMessage: String {
-        "VPN 模式需要可用的特权组件。"
+        NulConnectLocalization.text("VPN mode requires an available privileged component.")
     }
 
     var isProxyRunning: Bool {
@@ -260,10 +276,14 @@ final class AppModel: ObservableObject {
     }
 
     var isTunnelRunning: Bool {
-        if case .running = tunnelState {
+        switch tunnelState {
+        case .running, .reconnecting:
+            // While reconnecting, the connection is still "on" from the
+            // user's point of view and Disconnect must cancel it.
             return true
+        default:
+            return false
         }
-        return false
     }
 
     var isTunnelBusy: Bool {
@@ -356,11 +376,11 @@ final class AppModel: ObservableObject {
             sessionSummary = try sessionVault.loadSummary() ?? sessionMaterial.map { NulConnectSessionSummary(material: $0) }
             resourceSnapshot = try resourceStore.load()
             storedSessionMaterial = sessionMaterial
-            bannerMessage = "已重新载入本地配置"
+            bannerMessage = NulConnectLocalization.text("Local configuration reloaded")
             lastPersistenceErrorMessage = nil
         } catch {
             suppressProfilePersistence = false
-            bannerMessage = "重新载入失败: \(error.localizedDescription)"
+            bannerMessage = NulConnectLocalization.format("Could not reload configuration: %1$@", [String(describing: error.localizedDescription)])
             lastPersistenceErrorMessage = error.localizedDescription
         }
     }
@@ -370,10 +390,10 @@ final class AppModel: ObservableObject {
         do {
             try profileStore.save(profile)
             lastPersistenceErrorMessage = nil
-            bannerMessage = "设置已保存"
+            bannerMessage = NulConnectLocalization.text("Settings saved")
         } catch {
             lastPersistenceErrorMessage = error.localizedDescription
-            bannerMessage = "保存失败: \(error.localizedDescription)"
+            bannerMessage = NulConnectLocalization.format("Could not save: %1$@", [String(describing: error.localizedDescription)])
         }
     }
 
@@ -389,9 +409,9 @@ final class AppModel: ObservableObject {
             try sessionVault.save(material)
             sessionSummary = NulConnectSessionSummary(material: material)
             storedSessionMaterial = material
-            bannerMessage = "会话已保存"
+            bannerMessage = NulConnectLocalization.text("Session saved")
         } catch {
-            bannerMessage = "保存会话失败: \(error.localizedDescription)"
+            bannerMessage = NulConnectLocalization.format("Could not save session: %1$@", [String(describing: error.localizedDescription)])
             lastPersistenceErrorMessage = error.localizedDescription
         }
     }
@@ -401,9 +421,9 @@ final class AppModel: ObservableObject {
             try sessionVault.clear()
             sessionSummary = nil
             storedSessionMaterial = nil
-            bannerMessage = "会话已清除"
+            bannerMessage = NulConnectLocalization.text("Session cleared")
         } catch {
-            bannerMessage = "清除会话失败: \(error.localizedDescription)"
+            bannerMessage = NulConnectLocalization.format("Could not clear session: %1$@", [String(describing: error.localizedDescription)])
             lastPersistenceErrorMessage = error.localizedDescription
         }
     }
@@ -411,7 +431,7 @@ final class AppModel: ObservableObject {
     func logout() {
         guard !isLoggingOut else { return }
         isLoggingOut = true
-        bannerMessage = "正在退出登录"
+        bannerMessage = NulConnectLocalization.text("Signing out")
         pendingConnectionMode = nil
         Task { [weak self] in
             guard let self else { return }
@@ -428,9 +448,9 @@ final class AppModel: ObservableObject {
                 self.webLoginSession = nil
                 self.loginState = .idle
                 self.lastPersistenceErrorMessage = nil
-                self.bannerMessage = "已退出登录"
+                self.bannerMessage = NulConnectLocalization.text("Signed out")
             } catch {
-                self.bannerMessage = "退出登录失败: \(error.localizedDescription)"
+                self.bannerMessage = NulConnectLocalization.format("Could not sign out: %1$@", [String(describing: error.localizedDescription)])
                 self.lastPersistenceErrorMessage = error.localizedDescription
             }
             self.isLoggingOut = false
@@ -462,9 +482,9 @@ final class AppModel: ObservableObject {
         do {
             try resourceStore.save(snapshot)
             resourceSnapshot = snapshot
-            bannerMessage = "资源快照已保存"
+            bannerMessage = NulConnectLocalization.text("Resource snapshot saved")
         } catch {
-            bannerMessage = "保存资源快照失败: \(error.localizedDescription)"
+            bannerMessage = NulConnectLocalization.format("Could not save resource snapshot: %1$@", [String(describing: error.localizedDescription)])
             lastPersistenceErrorMessage = error.localizedDescription
         }
     }
@@ -473,32 +493,32 @@ final class AppModel: ObservableObject {
         do {
             try resourceStore.delete()
             resourceSnapshot = nil
-            bannerMessage = "资源快照已清除"
+            bannerMessage = NulConnectLocalization.text("Resource snapshot cleared")
         } catch {
-            bannerMessage = "清除资源快照失败: \(error.localizedDescription)"
+            bannerMessage = NulConnectLocalization.format("Could not clear resource snapshot: %1$@", [String(describing: error.localizedDescription)])
             lastPersistenceErrorMessage = error.localizedDescription
         }
     }
 
     func uninstallHelper() {
         guard !isVPNConnectedOrConnecting else {
-            bannerMessage = "VPN 连接中或已连接时不能卸载特权组件"
+            bannerMessage = NulConnectLocalization.text("Cannot uninstall the privileged component while VPN is connecting or connected")
             return
         }
-        bannerMessage = "正在卸载特权组件"
+        bannerMessage = NulConnectLocalization.text("Uninstalling privileged component")
         Task.detached(priority: .utility) { [weak self] in
             guard let self else { return }
             await self.stopAllNetworkModes()
             do {
                 try self.helperClient.uninstall()
                 await MainActor.run {
-                    self.bannerMessage = "特权组件已卸载"
+                    self.bannerMessage = NulConnectLocalization.text("Privileged component uninstalled")
                     self.lastPersistenceErrorMessage = nil
                     self.refreshHelperVersion(force: true)
                 }
             } catch {
                 await MainActor.run {
-                    self.bannerMessage = "卸载特权组件失败: \(error.localizedDescription)"
+                    self.bannerMessage = NulConnectLocalization.format("Could not uninstall privileged component: %1$@", [String(describing: error.localizedDescription)])
                     self.lastPersistenceErrorMessage = error.localizedDescription
                 }
             }
@@ -514,19 +534,19 @@ final class AppModel: ObservableObject {
 
     func ensureHelperInstalledOrUpToDate(reason: String) async throws {
         guard !isVPNConnectedOrConnecting else {
-            bannerMessage = "VPN 连接中或已连接时不能安装或更新特权组件"
-            throw NulConnectHelperClientError.commandFailed("VPN 连接中或已连接时不能安装或更新特权组件")
+            bannerMessage = NulConnectLocalization.text("Cannot install or update the privileged component while VPN is connecting or connected")
+            throw NulConnectHelperClientError.commandFailed(NulConnectLocalization.text("Cannot install or update the privileged component while VPN is connecting or connected"))
         }
         await MainActor.run {
             self.reportHelperActivity(.checking)
-            self.bannerMessage = "正在检查特权组件"
+            self.bannerMessage = NulConnectLocalization.text("Checking privileged component")
             self.lastPersistenceErrorMessage = nil
         }
 
         let needsInstallOrUpgrade = try await helperClient.requiresInstallOrUpgrade()
         guard needsInstallOrUpgrade else {
             await MainActor.run {
-                self.reportHelperActivity(.succeeded(message: "特权组件已是最新"))
+                self.reportHelperActivity(.succeeded(message: NulConnectLocalization.text("Privileged component is up to date")))
                 self.refreshHelperVersion(force: true)
             }
             return
@@ -543,16 +563,16 @@ final class AppModel: ObservableObject {
                 }
             })
             await MainActor.run {
-                self.reportHelperActivity(.waitingForStart(message: "特权组件已安装，等待服务启动"))
+                self.reportHelperActivity(.waitingForStart(message: NulConnectLocalization.text("Privileged component installed; waiting for the service to start")))
             }
             await MainActor.run {
-                self.reportHelperActivity(.succeeded(message: "特权组件已准备就绪"))
+                self.reportHelperActivity(.succeeded(message: NulConnectLocalization.text("Privileged component is ready")))
                 self.refreshHelperVersion(force: true)
             }
         } catch {
             await MainActor.run {
                 self.reportHelperActivity(.failed(message: error.localizedDescription))
-                self.bannerMessage = "特权组件安装失败: \(error.localizedDescription)"
+                self.bannerMessage = NulConnectLocalization.format("Could not install privileged component: %1$@", [String(describing: error.localizedDescription)])
                 self.lastPersistenceErrorMessage = error.localizedDescription
             }
             throw error
@@ -571,7 +591,7 @@ final class AppModel: ObservableObject {
                 profile.useSystemProxy = false
             }
             systemProxyState = .disabled
-            bannerMessage = "请先在“特权组件”页安装 helper"
+            bannerMessage = NulConnectLocalization.text("Install the helper on the Privileged Component tab first")
             return
         }
         replaceProfile { profile in
@@ -579,7 +599,7 @@ final class AppModel: ObservableObject {
         }
 
         guard case .running(let endpoint) = proxyState else {
-            bannerMessage = enabled ? "系统代理将在代理启动后自动开启" : "系统代理偏好已关闭"
+            bannerMessage = enabled ? NulConnectLocalization.text("System proxy will turn on automatically when the proxy starts") : NulConnectLocalization.text("System proxy preference is off")
             return
         }
 
@@ -696,8 +716,8 @@ final class AppModel: ObservableObject {
             return (refreshedMaterial, snapshot)
         } catch {
             if Self.isStoredSessionInvalidError(error) {
-                await invalidateStoredSession(message: "登录会话已失效，请重新登录", error: error)
-                throw NulConnectProxyServiceError.sessionExpired("登录会话已失效，请重新登录")
+                await invalidateStoredSession(message: NulConnectLocalization.text("Sign-in session expired. Please sign in again."), error: error)
+                throw NulConnectProxyServiceError.sessionExpired(NulConnectLocalization.text("Sign-in session expired. Please sign in again."))
             }
             throw error
         }
@@ -709,7 +729,7 @@ final class AppModel: ObservableObject {
             return endpoint.displayString
         default:
             guard isLocalProxyPortValid else {
-                return "本地代理端口无效"
+                return NulConnectLocalization.text("Local proxy port is invalid")
             }
             return "127.0.0.1:\(runtimeProfile.localProxyPort)"
         }
@@ -731,14 +751,14 @@ final class AppModel: ObservableObject {
         guard isLoginConfigurationReady else {
             loginState = .idle
             availableLoginMethods = []
-            bannerMessage = "请先填写服务地址并保存"
+            bannerMessage = NulConnectLocalization.text("Enter and save the server address first")
             print("[NulConnect][Login] skip refresh: invalid server host='\(profile.serverHost)' port=\(profile.serverPort) loginDomain='\(profile.loginDomain)'")
             return
         }
 
         loginTask?.cancel()
         loginState = .loadingMethods
-        bannerMessage = "正在获取登录方式"
+        bannerMessage = NulConnectLocalization.text("Loading sign-in methods")
         let runtimeProfile = self.runtimeProfile
         print("[NulConnect][Login] refresh methods start: serverHost='\(runtimeProfile.serverHost)' port=\(runtimeProfile.serverPort) loginDomain='\(runtimeProfile.loginDomain)' preferredAuthType='\(runtimeProfile.preferredAuthType ?? "")' clientType='\(runtimeProfile.clientType)' platform='\(runtimeProfile.platform)' allowInsecureTLS=\(runtimeProfile.allowInsecureTLS)")
 
@@ -751,7 +771,7 @@ final class AppModel: ObservableObject {
                     let supportedCount = methods.filter { self.capturePolicy(for: $0) != nil }.count
                     self.availableLoginMethods = methods
                     self.loginState = supportedCount > 0 ? .ready(methodCount: supportedCount) : .failed(message: NulConnectLoginError.noWebLoginMethods.localizedDescription)
-                    self.bannerMessage = methods.isEmpty ? "未获取到登录方式" : "已刷新登录方式"
+                    self.bannerMessage = methods.isEmpty ? NulConnectLocalization.text("No sign-in methods found") : NulConnectLocalization.text("Sign-in methods refreshed")
                     self.lastPersistenceErrorMessage = nil
                     print("[NulConnect][Login] refresh methods success: total=\(methods.count) supported=\(supportedCount)")
                     for method in methods {
@@ -761,7 +781,7 @@ final class AppModel: ObservableObject {
             } catch {
                 await MainActor.run {
                     self.loginState = .failed(message: error.localizedDescription)
-                    self.bannerMessage = "获取登录方式失败: \(error.localizedDescription)"
+                    self.bannerMessage = NulConnectLocalization.format("Could not load sign-in methods: %1$@", [String(describing: error.localizedDescription)])
                     self.lastPersistenceErrorMessage = error.localizedDescription
                     print("[NulConnect][Login] refresh methods failed: \(error)")
                 }
@@ -771,14 +791,14 @@ final class AppModel: ObservableObject {
 
     func startWebLogin(using method: ATRAuthMethod? = nil) {
         guard isLoginConfigurationReady else {
-            loginState = .failed(message: "请先在设置中填写服务地址")
-            bannerMessage = "请先填写服务地址并保存"
+            loginState = .failed(message: NulConnectLocalization.text("Enter the server address in Settings first"))
+            bannerMessage = NulConnectLocalization.text("Enter and save the server address first")
             return
         }
 
         loginTask?.cancel()
         loginState = .loadingMethods
-        bannerMessage = "正在准备 WebView 登录"
+        bannerMessage = NulConnectLocalization.text("Preparing web sign-in")
 
         let configuration = authConfiguration
         loginTask = Task { [authEngine] in
@@ -802,14 +822,14 @@ final class AppModel: ObservableObject {
                     self.availableLoginMethods = methods
                     self.webLoginSession = session
                     self.loginState = .presenting(methodName: targetMethod.authName.isEmpty ? targetMethod.authType : targetMethod.authName)
-                    self.bannerMessage = "已打开 \(session.title)"
+                    self.bannerMessage = NulConnectLocalization.format("Opened %1$@", [String(describing: session.title)])
                     self.lastPersistenceErrorMessage = nil
                     print("[NulConnect][Login] open web session title='\(session.title)' subtitle='\(session.subtitle)' startURL='\(session.startURL.absoluteString)'")
                 }
             } catch {
                 await MainActor.run {
                     self.loginState = .failed(message: error.localizedDescription)
-                    self.bannerMessage = "打开登录失败: \(error.localizedDescription)"
+                    self.bannerMessage = NulConnectLocalization.format("Could not open sign-in: %1$@", [String(describing: error.localizedDescription)])
                     self.lastPersistenceErrorMessage = error.localizedDescription
                 }
             }
@@ -825,7 +845,7 @@ final class AppModel: ObservableObject {
             return
         }
         loginState = .idle
-        bannerMessage = "已取消登录"
+        bannerMessage = NulConnectLocalization.text("Sign-in cancelled")
     }
 
     private func requestWebLogin(toContinue mode: NulConnectRouteMode) {
@@ -846,12 +866,12 @@ final class AppModel: ObservableObject {
 
     func completeWebLogin(with callbackURL: URL) {
         guard let session = webLoginSession else {
-            bannerMessage = "登录会话不存在"
+            bannerMessage = NulConnectLocalization.text("Sign-in session does not exist")
             return
         }
 
         loginState = .finalizing
-        bannerMessage = "正在完成登录"
+        bannerMessage = NulConnectLocalization.text("Completing sign-in")
         print("[NulConnect][Login] complete web login callbackURL='\(loggableURL(callbackURL))' methodAuthType='\(session.method.authType)' loginDomain='\(session.method.loginDomain)'")
 
         loginTask?.cancel()
@@ -862,16 +882,16 @@ final class AppModel: ObservableObject {
                 case .done(let material):
                     await MainActor.run {
                         self.saveSessionMaterial(material)
-                        self.loginState = .succeeded(message: "会话已保存")
+                        self.loginState = .succeeded(message: NulConnectLocalization.text("Session saved"))
                         self.webLoginSession = nil
                         if !self.isProxyRunning {
                             self.connectionState = NulConnectConnectionState(
                                 phase: .disconnected,
-                                message: "已登录，可启动代理",
+                                message: NulConnectLocalization.text("Signed in. You can start the proxy."),
                                 updatedAt: .now
                             )
                         }
-                        self.bannerMessage = "登录成功"
+                        self.bannerMessage = NulConnectLocalization.text("Signed in")
                     }
 
                     if let snapshot = await refreshResourceSnapshotAfterLogin(session: material) {
@@ -884,29 +904,29 @@ final class AppModel: ObservableObject {
                     }
                 case .callbackURL(let url, let kind):
                     await MainActor.run {
-                        self.loginState = .failed(message: "还需要继续处理回调: \(kind)")
-                        self.bannerMessage = "登录需要继续跳转: \(url)"
+                        self.loginState = .failed(message: NulConnectLocalization.format("Callback requires further handling: %1$@", [String(describing: kind)]))
+                        self.bannerMessage = NulConnectLocalization.format("Sign-in requires another redirect: %1$@", [String(describing: url)])
                         self.lastPersistenceErrorMessage = nil
                         let loggedURL = URL(string: url).map(loggableURL) ?? "<unparseable>"
                         print("[NulConnect][Login] complete web login returned callback kind=\(kind) url='\(loggedURL)'")
                     }
                 case .captcha:
                     await MainActor.run {
-                        self.loginState = .failed(message: "登录需要验证码，当前链路未实现")
-                        self.bannerMessage = "登录流程返回验证码挑战"
+                        self.loginState = .failed(message: NulConnectLocalization.text("Sign-in requires a CAPTCHA, which is not supported yet"))
+                        self.bannerMessage = NulConnectLocalization.text("Sign-in returned a CAPTCHA challenge")
                         print("[NulConnect][Login] complete web login returned captcha challenge")
                     }
                 case .smsCode:
                     await MainActor.run {
-                        self.loginState = .failed(message: "登录需要短信验证码，当前链路未实现")
-                        self.bannerMessage = "登录流程返回短信验证码挑战"
+                        self.loginState = .failed(message: NulConnectLocalization.text("Sign-in requires SMS verification, which is not supported yet"))
+                        self.bannerMessage = NulConnectLocalization.text("Sign-in returned an SMS verification challenge")
                         print("[NulConnect][Login] complete web login returned sms challenge")
                     }
                 }
             } catch {
                 await MainActor.run {
                     self.loginState = .failed(message: error.localizedDescription)
-                    self.bannerMessage = "完成登录失败: \(error.localizedDescription)"
+                    self.bannerMessage = NulConnectLocalization.format("Could not complete sign-in: %1$@", [String(describing: error.localizedDescription)])
                     self.lastPersistenceErrorMessage = error.localizedDescription
                     print("[NulConnect][Login] complete web login failed: \(error)")
                 }
@@ -916,8 +936,8 @@ final class AppModel: ObservableObject {
 
     private func enableSystemProxy(endpoint: NulConnectProxyEndpoint) async {
         guard let systemProxyManager else {
-            systemProxyState = .failed(message: "系统代理管理器不可用")
-            bannerMessage = "系统代理管理器不可用"
+            systemProxyState = .failed(message: NulConnectLocalization.text("System proxy manager is unavailable"))
+            bannerMessage = NulConnectLocalization.text("System proxy manager is unavailable")
             return
         }
 
@@ -926,7 +946,7 @@ final class AppModel: ObservableObject {
             replaceProfile { profile in
                 profile.useSystemProxy = false
             }
-            bannerMessage = "请先在“特权组件”页安装 helper"
+            bannerMessage = NulConnectLocalization.text("Install the helper on the Privileged Component tab first")
             return
         }
 
@@ -943,11 +963,11 @@ final class AppModel: ObservableObject {
                 }
             )
             systemProxyState = .enabled(endpoint: endpoint)
-            bannerMessage = "系统代理已开启，已配置 \(serviceCount) 个网络服务"
+            bannerMessage = NulConnectLocalization.format("System proxy enabled for %1$@ network services", [String(describing: serviceCount)])
             lastPersistenceErrorMessage = nil
         } catch {
             systemProxyState = .failed(message: error.localizedDescription)
-            bannerMessage = "开启系统代理失败: \(error.localizedDescription)"
+            bannerMessage = NulConnectLocalization.format("Could not enable system proxy: %1$@", [String(describing: error.localizedDescription)])
             lastPersistenceErrorMessage = error.localizedDescription
         }
     }
@@ -968,26 +988,26 @@ final class AppModel: ObservableObject {
         do {
             try await systemProxyManager.restore()
             systemProxyState = .disabled
-            bannerMessage = "系统代理已关闭"
+            bannerMessage = NulConnectLocalization.text("System proxy disabled")
             lastPersistenceErrorMessage = nil
         } catch {
             systemProxyState = .failed(message: error.localizedDescription)
-            bannerMessage = "关闭系统代理失败: \(error.localizedDescription)"
+            bannerMessage = NulConnectLocalization.format("Could not disable system proxy: %1$@", [String(describing: error.localizedDescription)])
             lastPersistenceErrorMessage = error.localizedDescription
         }
     }
 
     func startProxyMode() {
         guard effectiveRouteMode == .proxy else {
-            bannerMessage = "当前不是代理模式"
+            bannerMessage = NulConnectLocalization.text("Proxy mode is not selected")
             return
         }
         guard isLocalProxyPortValid else {
-            bannerMessage = "请先设置有效的本地代理端口（1 到 65535）"
+            bannerMessage = NulConnectLocalization.text("Set a valid local proxy port (1–65535) first")
             return
         }
         guard !isTunnelRunning && !isTunnelBusy else {
-            bannerMessage = "请先停止 VPN 模式"
+            bannerMessage = NulConnectLocalization.text("Stop VPN mode first")
             return
         }
         guard storedSessionMaterial != nil else {
@@ -995,14 +1015,14 @@ final class AppModel: ObservableObject {
             return
         }
         guard proxyService == nil else {
-            bannerMessage = "代理已经在运行"
+            bannerMessage = NulConnectLocalization.text("Proxy is already running")
             return
         }
 
         proxyState = .starting
         connectionState = NulConnectConnectionState(
             phase: .connecting,
-            message: "正在启动本地代理",
+            message: NulConnectLocalization.text("Starting local proxy"),
             updatedAt: .now
         )
 
@@ -1029,10 +1049,10 @@ final class AppModel: ObservableObject {
                     self.beginTrafficSession(continuing: false)
                     self.connectionState = NulConnectConnectionState(
                         phase: .connected,
-                        message: "本地代理已启动 \(endpoint.displayString)",
+                        message: NulConnectLocalization.format("Local proxy started at %1$@", [String(describing: endpoint.displayString)]),
                         updatedAt: .now
                     )
-                    self.bannerMessage = "代理模式已启动"
+                    self.bannerMessage = NulConnectLocalization.text("Proxy mode started")
                     self.lastPersistenceErrorMessage = nil
                 }
 
@@ -1050,7 +1070,7 @@ final class AppModel: ObservableObject {
                         message: error.localizedDescription,
                         updatedAt: .now
                     )
-                    self.bannerMessage = "启动代理失败: \(error.localizedDescription)"
+                    self.bannerMessage = NulConnectLocalization.format("Could not start proxy: %1$@", [String(describing: error.localizedDescription)])
                     self.lastPersistenceErrorMessage = error.localizedDescription
                     if Self.requiresWebLogin(error) {
                         self.requestWebLogin(toContinue: .proxy)
@@ -1065,7 +1085,7 @@ final class AppModel: ObservableObject {
             proxyState = .stopped
             connectionState = NulConnectConnectionState(
                 phase: .disconnected,
-                message: "代理未运行",
+                message: NulConnectLocalization.text("Proxy is not running"),
                 updatedAt: .now
             )
             return
@@ -1074,7 +1094,7 @@ final class AppModel: ObservableObject {
         proxyState = .stopping
         connectionState = NulConnectConnectionState(
             phase: .disconnecting,
-            message: "正在停止本地代理",
+            message: NulConnectLocalization.text("Stopping local proxy"),
             updatedAt: .now
         )
 
@@ -1095,10 +1115,10 @@ final class AppModel: ObservableObject {
         proxyState = .stopped
         connectionState = NulConnectConnectionState(
             phase: .disconnected,
-            message: "代理已停止",
+            message: NulConnectLocalization.text("Proxy stopped"),
             updatedAt: .now
         )
-        bannerMessage = "代理模式已停止"
+        bannerMessage = NulConnectLocalization.text("Proxy mode stopped")
         finishTrafficSession()
     }
 
@@ -1111,11 +1131,11 @@ final class AppModel: ObservableObject {
 
     func startTunnelMode() {
         guard effectiveRouteMode == .tun else {
-            bannerMessage = "当前不是 VPN 模式"
+            bannerMessage = NulConnectLocalization.text("VPN mode is not selected")
             return
         }
         guard isHelperInstalled else {
-            bannerMessage = "请先在“特权组件”页安装 helper"
+            bannerMessage = NulConnectLocalization.text("Install the helper on the Privileged Component tab first")
             return
         }
         guard let tunnelManager else {
@@ -1129,7 +1149,7 @@ final class AppModel: ObservableObject {
             return
         }
         guard !isProxyRunning && !isProxyBusy else {
-            bannerMessage = "请先停止代理模式"
+            bannerMessage = NulConnectLocalization.text("Stop proxy mode first")
             return
         }
         guard storedSessionMaterial != nil else {
@@ -1137,14 +1157,24 @@ final class AppModel: ObservableObject {
             return
         }
         guard !isTunnelRunning && !isTunnelBusy else {
-            bannerMessage = "VPN 已经在运行"
+            bannerMessage = NulConnectLocalization.text("VPN is already running")
             return
         }
 
+        cancelTunnelReconnect()
+        tunnelShouldStayConnected = true
+        if !isRecoveringTunnelSession {
+            tunnelHasConnected = false
+            tunnelReconnectAttempt = 0
+        }
+        launchTunnel(using: tunnelManager)
+    }
+
+    private func launchTunnel(using tunnelManager: NulConnectTunnelManager) {
         tunnelState = .starting
         connectionState = NulConnectConnectionState(
             phase: .connecting,
-            message: "正在启动 VPN 模式",
+            message: NulConnectLocalization.text("Starting VPN mode"),
             updatedAt: .now
         )
 
@@ -1173,14 +1203,21 @@ final class AppModel: ObservableObject {
                     }
                 )
                 await MainActor.run {
+                    let wasReconnect = self.isRecoveringTunnelSession && self.tunnelHasConnected
                     self.tunnelState = .running
+                    self.tunnelHasConnected = true
+                    self.tunnelReconnectAttempt = 0
+                    self.tunnelNetworkFingerprint = self.networkMonitor.snapshot.fingerprint
+                    self.tunnelNetworkLostAt = nil
                     self.beginTrafficSession(continuing: self.isRecoveringTunnelSession)
                     self.connectionState = NulConnectConnectionState(
                         phase: .connected,
-                        message: "VPN 模式已启动",
+                        message: NulConnectLocalization.text("VPN mode started"),
                         updatedAt: .now
                     )
-                    self.bannerMessage = "VPN 模式已启动"
+                    self.bannerMessage = wasReconnect
+                        ? NulConnectLocalization.text("VPN reconnected")
+                        : NulConnectLocalization.text("VPN mode started")
                     self.lastPersistenceErrorMessage = nil
                     self.startTunnelHealthMonitor()
                     self.isRecoveringTunnelSession = false
@@ -1197,6 +1234,17 @@ final class AppModel: ObservableObject {
                 await self.stopProxyServiceOffMainActor(tunnelProxyService)
                 await MainActor.run {
                     self.stopTunnelHealthMonitor()
+                    if self.tunnelShouldStayConnected,
+                       self.tunnelHasConnected,
+                       !(error is CancellationError),
+                       !Self.requiresWebLogin(error) {
+                        // The VPN was working before (network drop, sleep,
+                        // network switch): keep retrying instead of failing.
+                        self.tunnelState = .stopped
+                        self.scheduleTunnelReconnect(reason: error.localizedDescription)
+                        return
+                    }
+                    self.tunnelShouldStayConnected = false
                     self.isRecoveringTunnelSession = false
                     self.tunnelState = .failed(message: error.localizedDescription)
                     self.connectionState = NulConnectConnectionState(
@@ -1204,7 +1252,7 @@ final class AppModel: ObservableObject {
                         message: error.localizedDescription,
                         updatedAt: .now
                     )
-                    self.bannerMessage = "启动 VPN 失败: \(error.localizedDescription)"
+                    self.bannerMessage = NulConnectLocalization.format("Could not start VPN: %1$@", [String(describing: error.localizedDescription)])
                     self.lastPersistenceErrorMessage = error.localizedDescription
                     if Self.requiresWebLogin(error) {
                         self.requestWebLogin(toContinue: .tun)
@@ -1215,6 +1263,8 @@ final class AppModel: ObservableObject {
     }
 
     func prepareForApplicationTermination() async {
+        tunnelShouldStayConnected = false
+        cancelTunnelReconnect()
         stopTunnelHealthMonitor()
         tunnelTask?.cancel()
         proxyTask?.cancel()
@@ -1244,18 +1294,20 @@ final class AppModel: ObservableObject {
 
         connectionState = NulConnectConnectionState(
             phase: .disconnected,
-            message: "网络组件已停止",
+            message: NulConnectLocalization.text("Network component stopped"),
             updatedAt: .now
         )
         finishTrafficSession()
     }
 
     func stopTunnelMode() {
+        tunnelShouldStayConnected = false
+        cancelTunnelReconnect()
         guard isTunnelRunning || isTunnelBusy else {
             tunnelState = .stopped
             connectionState = NulConnectConnectionState(
                 phase: .disconnected,
-                message: "VPN 未运行",
+                message: NulConnectLocalization.text("VPN is not running"),
                 updatedAt: .now
             )
             return
@@ -1266,7 +1318,7 @@ final class AppModel: ObservableObject {
         isRecoveringTunnelSession = false
         connectionState = NulConnectConnectionState(
             phase: .disconnecting,
-            message: "正在停止 VPN 模式",
+            message: NulConnectLocalization.text("Stopping VPN mode"),
             updatedAt: .now
         )
 
@@ -1287,10 +1339,10 @@ final class AppModel: ObservableObject {
                     self.tunnelState = .stopped
                     self.connectionState = NulConnectConnectionState(
                         phase: .disconnected,
-                        message: "VPN 已停止",
+                        message: NulConnectLocalization.text("VPN stopped"),
                         updatedAt: .now
                     )
-                    self.bannerMessage = "VPN 模式已停止"
+                    self.bannerMessage = NulConnectLocalization.text("VPN mode stopped")
                     self.finishTrafficSession()
                 }
             } catch {
@@ -1302,7 +1354,7 @@ final class AppModel: ObservableObject {
                         message: error.localizedDescription,
                         updatedAt: .now
                     )
-                    self.bannerMessage = "停止 VPN 失败: \(error.localizedDescription)"
+                    self.bannerMessage = NulConnectLocalization.format("Could not stop VPN: %1$@", [String(describing: error.localizedDescription)])
                 }
             }
         }
@@ -1312,6 +1364,8 @@ final class AppModel: ObservableObject {
         print("[NulConnect][Proxy] session invalidated: \(error)")
         let wasTunnelMode = tunnelProxyService != nil || isTunnelRunning || isTunnelBusy
         if wasTunnelMode {
+            tunnelShouldStayConnected = false
+            cancelTunnelReconnect()
             stopTunnelHealthMonitor()
             let service = tunnelProxyService
             tunnelProxyService = nil
@@ -1321,7 +1375,7 @@ final class AppModel: ObservableObject {
             Task { [tunnelManager] in
                 try? await tunnelManager?.stop()
             }
-            tunnelState = .failed(message: "登录会话已失效")
+            tunnelState = .failed(message: NulConnectLocalization.text("Sign-in session expired"))
             failProxySessionInvalidated(error)
             requestWebLogin(toContinue: .tun)
             return
@@ -1343,10 +1397,10 @@ final class AppModel: ObservableObject {
         proxyState = .starting
         connectionState = NulConnectConnectionState(
             phase: .connecting,
-            message: "登录会话已失效，正在尝试恢复",
+            message: NulConnectLocalization.text("Sign-in session expired. Attempting recovery."),
             updatedAt: .now
         )
-        bannerMessage = "正在恢复登录会话"
+        bannerMessage = NulConnectLocalization.text("Restoring sign-in session")
         lastPersistenceErrorMessage = error.localizedDescription
 
         let profile = runtimeProfile
@@ -1372,10 +1426,10 @@ final class AppModel: ObservableObject {
                     self.beginTrafficSession(continuing: true)
                     self.connectionState = NulConnectConnectionState(
                         phase: .connected,
-                        message: "本地代理已恢复 \(endpoint.displayString)",
+                        message: NulConnectLocalization.format("Local proxy restored at %1$@", [String(describing: endpoint.displayString)]),
                         updatedAt: .now
                     )
-                    self.bannerMessage = "登录会话已恢复"
+                    self.bannerMessage = NulConnectLocalization.text("Sign-in session restored")
                     self.lastPersistenceErrorMessage = nil
                 }
             } catch {
@@ -1441,14 +1495,14 @@ final class AppModel: ObservableObject {
         sessionSummary = nil
         resourceSnapshot = nil
 
-        proxyState = .failed(message: "登录会话已失效")
+        proxyState = .failed(message: NulConnectLocalization.text("Sign-in session expired"))
         connectionState = NulConnectConnectionState(
             phase: .failed,
-            message: "登录会话已失效，请重新登录",
+            message: NulConnectLocalization.text("Sign-in session expired. Please sign in again."),
             updatedAt: .now
         )
-        loginState = .failed(message: "登录会话已失效，请重新登录")
-        bannerMessage = "登录会话已失效，请重新登录"
+        loginState = .failed(message: NulConnectLocalization.text("Sign-in session expired. Please sign in again."))
+        bannerMessage = NulConnectLocalization.text("Sign-in session expired. Please sign in again.")
         lastPersistenceErrorMessage = error.localizedDescription
     }
 
@@ -1486,7 +1540,7 @@ final class AppModel: ObservableObject {
 
     private func handleTunnelRuntimeStopped(_ status: NulConnectTunnelRuntimeStatus) async {
         stopTunnelHealthMonitor()
-        let message = status.message ?? "VPN 特权组件已停止"
+        let message = status.message ?? NulConnectLocalization.text("VPN privileged component stopped")
         let error = NulConnectTunnelManagerError.helperFailed(message)
 
         if Self.isStoredSessionInvalidError(error), !isRecoveringTunnelSession {
@@ -1494,14 +1548,20 @@ final class AppModel: ObservableObject {
             tunnelState = .stopped
             connectionState = NulConnectConnectionState(
                 phase: .connecting,
-                message: "登录会话已失效，正在恢复 VPN",
+                message: NulConnectLocalization.text("Sign-in session expired. Restoring VPN."),
                 updatedAt: .now
             )
-            bannerMessage = "正在恢复登录会话"
+            bannerMessage = NulConnectLocalization.text("Restoring sign-in session")
             startTunnelMode()
             return
         }
 
+        if tunnelShouldStayConnected && tunnelHasConnected {
+            scheduleTunnelReconnect(reason: message)
+            return
+        }
+
+        tunnelShouldStayConnected = false
         isRecoveringTunnelSession = false
         tunnelState = .failed(message: message)
         connectionState = NulConnectConnectionState(
@@ -1509,8 +1569,148 @@ final class AppModel: ObservableObject {
             message: message,
             updatedAt: .now
         )
-        bannerMessage = "VPN 运行失败: \(message)"
+        bannerMessage = NulConnectLocalization.format("VPN failed: %1$@", [String(describing: message)])
         lastPersistenceErrorMessage = message
+    }
+
+    // MARK: - Network changes, sleep/wake and VPN auto-reconnect
+
+    /// Sleeping at least this long drops NAT mappings and server-side L3
+    /// state, so the tunnel is re-established on wake.
+    private static let tunnelWakeReconnectThreshold: TimeInterval = 30
+    /// A network outage at least this long is treated like a wake: the old
+    /// tunnel connection is assumed dead once the network returns.
+    private static let tunnelOutageReconnectThreshold: TimeInterval = 30
+
+    private static func tunnelReconnectDelay(attempt: Int) -> Duration {
+        let seconds = [1, 2, 5, 10, 20, 30]
+        return .seconds(attempt <= seconds.count ? seconds[attempt - 1] : 60)
+    }
+
+    private func handleNetworkEvent(_ event: NulConnectNetworkMonitor.Event) {
+        switch event {
+        case .pathChanged:
+            // Let the path settle (Wi-Fi roaming, DHCP) before acting.
+            networkChangeTask?.cancel()
+            networkChangeTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                self?.evaluateTunnelAfterNetworkChange()
+            }
+        case .willSleep:
+            break
+        case .didWake(let sleptFor):
+            guard tunnelShouldStayConnected,
+                  tunnelState == .running,
+                  sleptFor >= Self.tunnelWakeReconnectThreshold else { return }
+            scheduleTunnelReconnect(reason: "system woke after \(Int(sleptFor))s of sleep")
+        }
+    }
+
+    private func evaluateTunnelAfterNetworkChange() {
+        if case .reconnecting(let attempt) = tunnelState {
+            updateReconnectingState(attempt: attempt)
+            return
+        }
+        guard tunnelShouldStayConnected, tunnelState == .running else { return }
+
+        let snapshot = networkMonitor.snapshot
+        guard snapshot.isAvailable else {
+            // Keep the tunnel for now: short drops (roaming) often recover on
+            // their own. If the link really died, the helper reports a failure
+            // and the reconnect loop waits for the network to come back.
+            if tunnelNetworkLostAt == nil {
+                tunnelNetworkLostAt = Date()
+            }
+            connectionState = NulConnectConnectionState(
+                phase: .connecting,
+                message: NulConnectLocalization.text("Network unavailable. VPN will reconnect when the network returns."),
+                updatedAt: .now
+            )
+            return
+        }
+
+        let outage = tunnelNetworkLostAt.map { Date().timeIntervalSince($0) } ?? 0
+        tunnelNetworkLostAt = nil
+        guard let fingerprint = snapshot.fingerprint else { return }
+        guard let previous = tunnelNetworkFingerprint else {
+            tunnelNetworkFingerprint = fingerprint
+            return
+        }
+        if fingerprint != previous {
+            // Routes to the gateway nodes were pinned to the old network's
+            // gateway; the tunnel must be rebuilt on the new network.
+            scheduleTunnelReconnect(reason: "network changed")
+        } else if outage >= Self.tunnelOutageReconnectThreshold {
+            scheduleTunnelReconnect(reason: "network returned after \(Int(outage))s")
+        } else if connectionState.phase == .connecting {
+            connectionState = NulConnectConnectionState(
+                phase: .connected,
+                message: NulConnectLocalization.text("VPN mode started"),
+                updatedAt: .now
+            )
+        }
+    }
+
+    /// Tears down whatever is left of the tunnel and starts it again once the
+    /// network is available, backing off between attempts. Routes, DNS and the
+    /// sign-in session are all recomputed for the current network.
+    private func scheduleTunnelReconnect(reason: String) {
+        guard tunnelShouldStayConnected,
+              tunnelReconnectTask == nil,
+              let tunnelManager else { return }
+
+        stopTunnelHealthMonitor()
+        let attempt = tunnelReconnectAttempt + 1
+        tunnelReconnectAttempt = attempt
+        tunnelState = .reconnecting(attempt: attempt)
+        updateReconnectingState(attempt: attempt)
+        if attempt == 1 {
+            bannerMessage = NulConnectLocalization.text("VPN connection lost. Reconnecting…")
+        }
+        NulConnectDiagnostics.log("[NulConnect][Tunnel] reconnect scheduled attempt=\(attempt) reason=\(reason)")
+
+        tunnelReconnectTask = Task { [weak self] in
+            guard let self else { return }
+            await self.captureTunnelTrafficBeforeStop()
+            try? await tunnelManager.stop()
+            let service = self.tunnelProxyService
+            self.tunnelProxyService = nil
+            await self.stopProxyServiceOffMainActor(service)
+
+            do {
+                try await Task.sleep(for: Self.tunnelReconnectDelay(attempt: attempt))
+                while !self.networkMonitor.snapshot.isAvailable {
+                    self.updateReconnectingState(attempt: attempt)
+                    try await Task.sleep(for: .seconds(1))
+                }
+            } catch {
+                return
+            }
+            guard self.tunnelShouldStayConnected,
+                  case .reconnecting = self.tunnelState else { return }
+            self.tunnelReconnectTask = nil
+            self.isRecoveringTunnelSession = true
+            NulConnectDiagnostics.log("[NulConnect][Tunnel] reconnect attempt=\(attempt) starting")
+            self.launchTunnel(using: tunnelManager)
+        }
+    }
+
+    private func cancelTunnelReconnect() {
+        tunnelReconnectTask?.cancel()
+        tunnelReconnectTask = nil
+    }
+
+    private func updateReconnectingState(attempt: Int) {
+        let message = networkMonitor.snapshot.isAvailable
+            ? NulConnectLocalization.format("Connection lost. Reconnecting VPN (attempt %1$@)", [String(attempt)])
+            : NulConnectLocalization.text("Network unavailable. VPN will reconnect when the network returns.")
+        guard connectionState.phase != .connecting || connectionState.message != message else { return }
+        connectionState = NulConnectConnectionState(
+            phase: .connecting,
+            message: message,
+            updatedAt: .now
+        )
     }
 
     private func stopAllNetworkModes() async {

@@ -8,9 +8,9 @@ nonisolated enum NulConnectTunnelManagerError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .helperStateUnavailable:
-            return "无法读取 VPN 运行状态"
+            return NulConnectLocalization.text("Could not read VPN runtime status")
         case .helperFailed(let message):
-            return "VPN 特权组件失败: \(message)"
+            return NulConnectLocalization.format("VPN privileged component failed: %1$@", [String(describing: message)])
         }
     }
 }
@@ -63,7 +63,7 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
         guard helperClient.isRunning() else {
             return NulConnectTunnelRuntimeStatus(
                 status: "failed",
-                message: "VPN 特权组件已退出",
+                message: NulConnectLocalization.text("VPN privileged component exited"),
                 traffic: .zero
             )
         }

@@ -84,10 +84,10 @@ final class NulConnectStatusItemController: NSObject {
     private let trafficView = NulConnectTrafficMenuView(
         frame: NSRect(x: 0, y: 0, width: 196, height: 24)
     )
-    private let dashboardMenuItem = NSMenuItem(title: "仪表板", action: nil, keyEquivalent: "0")
+    private let dashboardMenuItem = NSMenuItem(title: NulConnectLocalization.text("Dashboard"), action: nil, keyEquivalent: "0")
     private let connectionMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "r")
-    private let settingsMenuItem = NSMenuItem(title: "设置", action: nil, keyEquivalent: ",")
-    private let quitMenuItem = NSMenuItem(title: "退出", action: nil, keyEquivalent: "q")
+    private let settingsMenuItem = NSMenuItem(title: NulConnectLocalization.text("Settings"), action: nil, keyEquivalent: ",")
+    private let quitMenuItem = NSMenuItem(title: NulConnectLocalization.text("Quit"), action: nil, keyEquivalent: "q")
 
     private weak var model: AppModel?
     private var openDashboard: (() -> Void)?
@@ -191,7 +191,7 @@ final class NulConnectStatusItemController: NSObject {
     private func refreshModelState() {
         guard let model else { return }
 
-        let host = model.profile.serverHost.isEmpty ? "未配置服务器" : model.profile.serverHost
+        let host = model.profile.serverHost.isEmpty ? NulConnectLocalization.text("Server not configured") : model.profile.serverHost
         statusMenuItem.title = "\(model.connectionState.phase.title) · \(host)"
 
         let isRunning = selectedModeIsRunning(model)
@@ -232,9 +232,9 @@ final class NulConnectStatusItemController: NSObject {
     private func connectionActionTitle(_ model: AppModel, isRunning: Bool) -> String {
         switch model.effectiveRouteMode {
         case .proxy:
-            return isRunning ? "停止代理" : "启动代理"
+            return isRunning ? NulConnectLocalization.text("Stop Proxy") : NulConnectLocalization.text("Start Proxy")
         case .tun:
-            return isRunning ? "停止 VPN" : "启动 VPN"
+            return isRunning ? NulConnectLocalization.text("Stop VPN") : NulConnectLocalization.text("Start VPN")
         }
     }
 

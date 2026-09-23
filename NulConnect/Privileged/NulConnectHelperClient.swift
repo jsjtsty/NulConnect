@@ -12,13 +12,13 @@ nonisolated enum NulConnectHelperClientError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .helperNotInstalled:
-            return "特权组件尚未安装"
+            return NulConnectLocalization.text("Privileged component is not installed")
         case .helperNotRunning:
-            return "特权组件尚未启动"
+            return NulConnectLocalization.text("Privileged component is not running")
         case .bundledHelperNotFound:
-            return "找不到内置特权组件"
+            return NulConnectLocalization.text("Bundled privileged component was not found")
         case .invalidResponse:
-            return "特权组件返回了无效响应"
+            return NulConnectLocalization.text("Privileged component returned an invalid response")
         case .commandFailed(let message):
             return message
         }
@@ -112,12 +112,12 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
     func installOrUpgrade(reporter: ActivityReporter? = nil) async throws {
         print("[NulConnect][Helper] installOrUpgrade: starting")
         if let reporter {
-            await reporter(.installing(message: "正在请求管理员授权并安装特权组件"))
+            await reporter(.installing(message: NulConnectLocalization.text("Requesting administrator authorization and installing the privileged component")))
         }
         let helperURL = try bundledHelperURL()
         print("[NulConnect][Helper] installOrUpgrade: bundled helper at \(helperURL.path)")
         if let reporter {
-            await reporter(.installing(message: "正在复制 helper 和启动项"))
+            await reporter(.installing(message: NulConnectLocalization.text("Copying the helper and launch item")))
         }
         let plist = try propertyListXMLString(from: launchDaemonPlistObject())
         let script = """
@@ -140,19 +140,19 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
         try NulConnectPrivilegedExecutor.runShellScript(script, name: "helper-install")
         print("[NulConnect][Helper] installOrUpgrade: privileged script completed, waiting for socket")
         if let reporter {
-            await reporter(.waitingForStart(message: "特权组件已安装，正在等待服务启动"))
+            await reporter(.waitingForStart(message: NulConnectLocalization.text("Privileged component installed; waiting for the service to start")))
         }
         try waitForSocket()
         print("[NulConnect][Helper] installOrUpgrade: completed successfully")
         if let reporter {
-            await reporter(.succeeded(message: "特权组件已安装并启动"))
+            await reporter(.succeeded(message: NulConnectLocalization.text("Privileged component installed and started")))
         }
     }
 
     private func startInstalledHelper(reporter: ActivityReporter? = nil) async throws {
         print("[NulConnect][Helper] startInstalledHelper: starting")
         if let reporter {
-            await reporter(.waitingForStart(message: "正在启动特权组件"))
+            await reporter(.waitingForStart(message: NulConnectLocalization.text("Starting privileged component")))
         }
         let script = """
         launchctl bootstrap system \(NulConnectPrivilegedExecutor.shellQuote(Self.launchDaemonPath)) >/dev/null 2>&1 || true
@@ -222,7 +222,7 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             Thread.sleep(forTimeInterval: 0.1)
         }
         print("[NulConnect][Helper] waitForSocket: timed out after \(count) checks")
-        throw NulConnectHelperClientError.commandFailed("特权组件已安装，但服务未及时启动")
+        throw NulConnectHelperClientError.commandFailed(NulConnectLocalization.text("Privileged component installed, but the service did not start in time"))
     }
 
     func status() async throws -> [String: Any] {
@@ -355,7 +355,7 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             if fd < 0 {
                 let err = errno
                 print("[NulConnect][Helper] send: FAILED - socket(): \(String(cString: strerror(err)))")
-                throw NulConnectHelperClientError.commandFailed("无法创建 socket: \(String(cString: strerror(err)))")
+                throw NulConnectHelperClientError.commandFailed(NulConnectLocalization.format("Could not create socket: %1$@", [String(describing: String(cString: strerror(err)))]))
             }
             defer { Darwin.close(fd) }
 
@@ -368,7 +368,7 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             let connectResult = Self.connectUnixSocket(fd, path: Self.socketPath)
             if connectResult < 0 {
                 print("[NulConnect][Helper] send: FAILED - connect(): \(String(cString: strerror(-connectResult)))")
-                throw NulConnectHelperClientError.commandFailed("无法连接特权组件: \(String(cString: strerror(-connectResult)))")
+                throw NulConnectHelperClientError.commandFailed(NulConnectLocalization.format("Could not connect to privileged component: %1$@", [String(describing: String(cString: strerror(-connectResult)))]))
             }
             print("[NulConnect][Helper] send: connected")
 
@@ -388,7 +388,7 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             if ok {
                 return obj["data"] as? [String: Any] ?? [:]
             }
-            let msg = (obj["error"] as? [String: Any])?["message"] as? String ?? "特权组件命令失败"
+            let msg = (obj["error"] as? [String: Any])?["message"] as? String ?? NulConnectLocalization.text("Privileged component command failed")
             print("[NulConnect][Helper] send: FAILED - \(msg)")
             throw NulConnectHelperClientError.commandFailed(msg)
         }.value
@@ -426,9 +426,9 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
                 if n < 0 {
                     let err = errno
                     if err == EPIPE {
-                        throw NulConnectHelperClientError.commandFailed("特权组件已断开连接")
+                        throw NulConnectHelperClientError.commandFailed(NulConnectLocalization.text("Privileged component disconnected"))
                     }
-                    throw NulConnectHelperClientError.commandFailed("写入失败: \(String(cString: strerror(err)))")
+                    throw NulConnectHelperClientError.commandFailed(NulConnectLocalization.format("Write failed: %1$@", [String(describing: String(cString: strerror(err)))]))
                 }
                 sent += n
             }
@@ -443,11 +443,11 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             let n = buf.withUnsafeMutableBufferPointer { ptr in
                 Darwin.read(fd, ptr.baseAddress!, 4096)
             }
-            if n == 0 { throw NulConnectHelperClientError.commandFailed("特权组件关闭了连接") }
+            if n == 0 { throw NulConnectHelperClientError.commandFailed(NulConnectLocalization.text("Privileged component closed the connection")) }
             if n < 0 {
                 let err = errno
-                if err == EAGAIN || err == EWOULDBLOCK { throw NulConnectHelperClientError.commandFailed("读取响应超时") }
-                throw NulConnectHelperClientError.commandFailed("读取失败: \(String(cString: strerror(err)))")
+                if err == EAGAIN || err == EWOULDBLOCK { throw NulConnectHelperClientError.commandFailed(NulConnectLocalization.text("Timed out waiting for a response")) }
+                throw NulConnectHelperClientError.commandFailed(NulConnectLocalization.format("Read failed: %1$@", [String(describing: String(cString: strerror(err)))]))
             }
             let bytes = Data(bytes: buf, count: n)
             result.append(bytes)
@@ -492,7 +492,7 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             options: 0
         )
         guard let string = String(data: data, encoding: .utf8) else {
-            throw NulConnectHelperClientError.commandFailed("无法生成 LaunchDaemon plist")
+            throw NulConnectHelperClientError.commandFailed(NulConnectLocalization.text("Could not generate the LaunchDaemon plist"))
         }
         return string
     }

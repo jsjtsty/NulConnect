@@ -150,7 +150,7 @@ struct NulConnectWebViewLoginView: NSViewRepresentable {
             guard !didCapture else { return }
             didCapture = true
             print("[NulConnect][WebLogin] capture url=\(loggableURL(url))")
-            onStatusChange("已捕获回调地址")
+            onStatusChange(NulConnectLocalization.text("Callback URL captured"))
             onCaptured(url)
             webView?.stopLoading()
         }
@@ -229,7 +229,7 @@ struct NulConnectWebLoginSheet: View {
 
                 Spacer()
 
-                Button("取消") {
+                Button(NulConnectLocalization.text("Cancel")) {
                     onCancel()
                 }
                 .buttonStyle(.bordered)

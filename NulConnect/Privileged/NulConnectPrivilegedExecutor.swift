@@ -8,11 +8,11 @@ nonisolated enum NulConnectPrivilegedExecutorError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .scriptEncodingFailed:
-            return "无法编码特权脚本"
+            return NulConnectLocalization.text("Could not encode the privileged script")
         case .launchFailed(let message):
-            return "无法请求管理员权限: \(message)"
+            return NulConnectLocalization.format("Could not request administrator privileges: %1$@", [String(describing: message)])
         case .commandFailed(let message):
-            return "特权命令执行失败: \(message)"
+            return NulConnectLocalization.format("Privileged command failed: %1$@", [String(describing: message)])
         }
     }
 }

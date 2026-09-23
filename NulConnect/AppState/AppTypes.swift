@@ -1,6 +1,16 @@
 import Combine
 import Foundation
 
+enum NulConnectLocalization {
+    nonisolated static func text(_ key: String) -> String {
+        NSLocalizedString(key, comment: "")
+    }
+
+    nonisolated static func format(_ key: String, _ arguments: [CVarArg]) -> String {
+        String(format: text(key), arguments: arguments)
+    }
+}
+
 enum NulConnectRouteMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case proxy
     case tun
@@ -9,15 +19,15 @@ enum NulConnectRouteMode: String, Codable, CaseIterable, Identifiable, Sendable 
 
     var title: String {
         switch self {
-        case .proxy: return "代理模式"
-        case .tun: return "VPN 模式"
+        case .proxy: return NulConnectLocalization.text("Proxy Mode")
+        case .tun: return NulConnectLocalization.text("VPN Mode")
         }
     }
 
     var subtitle: String {
         switch self {
-        case .proxy: return "默认不改系统代理，可按需启用"
-        case .tun: return "由虚拟网卡接管流量"
+        case .proxy: return NulConnectLocalization.text("System proxy stays unchanged by default and can be enabled when needed")
+        case .tun: return NulConnectLocalization.text("Route traffic through a virtual network interface")
         }
     }
 }
@@ -33,11 +43,11 @@ enum NulConnectConnectionPhase: String, Codable, CaseIterable, Identifiable, Sen
 
     var title: String {
         switch self {
-        case .disconnected: return "未连接"
-        case .connecting: return "连接中"
-        case .connected: return "已连接"
-        case .disconnecting: return "断开中"
-        case .failed: return "失败"
+        case .disconnected: return NulConnectLocalization.text("Disconnected")
+        case .connecting: return NulConnectLocalization.text("Connecting")
+        case .connected: return NulConnectLocalization.text("Connected")
+        case .disconnecting: return NulConnectLocalization.text("Disconnecting")
+        case .failed: return NulConnectLocalization.text("Failed")
         }
     }
 }
@@ -235,6 +245,9 @@ enum NulConnectTunnelRuntimeState: Equatable, Sendable {
     case starting
     case running
     case stopping
+    /// The connection dropped (network loss, sleep, network switch) and is
+    /// being re-established automatically.
+    case reconnecting(attempt: Int)
     case failed(message: String)
 }
 
@@ -249,13 +262,13 @@ enum NulConnectLoginState: Equatable, Sendable {
 
     var title: String {
         switch self {
-        case .idle: return "未开始"
-        case .loadingMethods: return "正在获取登录方式"
-        case .ready(let methodCount): return "已获取 \(methodCount) 个登录方式"
-        case .presenting(let methodName): return "正在打开 \(methodName)"
-        case .finalizing: return "正在完成登录"
-        case .failed: return "登录失败"
-        case .succeeded: return "登录成功"
+        case .idle: return NulConnectLocalization.text("Not started")
+        case .loadingMethods: return NulConnectLocalization.text("Loading sign-in methods")
+        case .ready(let methodCount): return String(format: NulConnectLocalization.text("Loaded %1$@ sign-in methods"), String(methodCount))
+        case .presenting(let methodName): return "\(NulConnectLocalization.text("Opening")) \(methodName)"
+        case .finalizing: return NulConnectLocalization.text("Completing sign-in")
+        case .failed: return NulConnectLocalization.text("Sign-in failed")
+        case .succeeded: return NulConnectLocalization.text("Signed in")
         }
     }
 
@@ -282,7 +295,7 @@ enum NulConnectHelperActivityState: Equatable, Sendable {
         case .idle:
             return nil
         case .checking:
-            return "正在检查特权组件"
+            return NulConnectLocalization.text("Checking privileged component")
         case .installing(let message),
              .waitingForStart(let message),
              .succeeded(let message),
@@ -319,9 +332,9 @@ enum NulConnectWebLoginCapturePolicy: Sendable {
     nonisolated var hint: String {
         switch self {
         case .cas:
-            return "捕获包含 ticket 的 CAS 回调"
+            return NulConnectLocalization.text("Capture CAS callback containing a ticket")
         case .httpsOauth2:
-            return "捕获包含 code 的 OAuth2 回调"
+            return NulConnectLocalization.text("Capture OAuth2 callback containing a code")
         }
     }
 
@@ -340,23 +353,23 @@ enum NulConnectWebLoginCapturePolicy: Sendable {
 
     nonisolated func validate(_ url: URL) throws -> URL {
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            throw NulConnectLoginError.invalidCallbackURL("无法解析回调地址")
+            throw NulConnectLoginError.invalidCallbackURL(NulConnectLocalization.text("Could not parse callback URL"))
         }
 
         switch self {
         case .cas(let baseHost, let allowedHosts):
             guard let host = components.host else {
-                throw NulConnectLoginError.invalidCallbackURL("CAS 回调缺少主机名")
+                throw NulConnectLoginError.invalidCallbackURL(NulConnectLocalization.text("CAS callback is missing a host name"))
             }
             guard allowedHosts.contains(Self.normalizedHost(host)) else {
-                throw NulConnectLoginError.invalidCallbackURL("CAS 回调主机不匹配")
+                throw NulConnectLoginError.invalidCallbackURL(NulConnectLocalization.text("CAS callback host does not match"))
             }
             guard components.path.contains("cas") else {
-                throw NulConnectLoginError.invalidCallbackURL("CAS 回调路径不匹配")
+                throw NulConnectLoginError.invalidCallbackURL(NulConnectLocalization.text("CAS callback path does not match"))
             }
             let ticket = components.queryItems?.first(where: { $0.name == "ticket" && !($0.value ?? "").isEmpty })
             guard ticket != nil else {
-                throw NulConnectLoginError.invalidCallbackURL("CAS 回调缺少 ticket")
+                throw NulConnectLoginError.invalidCallbackURL(NulConnectLocalization.text("CAS callback is missing a ticket"))
             }
             if components.scheme == "https" {
                 components.host = baseHost
@@ -367,21 +380,21 @@ enum NulConnectWebLoginCapturePolicy: Sendable {
                 components.host = baseHost
                 return components.url ?? url
             }
-            throw NulConnectLoginError.invalidCallbackURL("CAS 回调协议不正确")
+            throw NulConnectLoginError.invalidCallbackURL(NulConnectLocalization.text("CAS callback uses an invalid scheme"))
         case .httpsOauth2(_, let allowedHosts):
             guard components.scheme == "https" else {
-                throw NulConnectLoginError.invalidCallbackURL("OAuth2 回调必须是 HTTPS")
+                throw NulConnectLoginError.invalidCallbackURL(NulConnectLocalization.text("OAuth2 callback must use HTTPS"))
             }
             guard let host = components.host,
                   allowedHosts.contains(Self.normalizedHost(host)) else {
-                throw NulConnectLoginError.invalidCallbackURL("OAuth2 回调主机不匹配")
+                throw NulConnectLoginError.invalidCallbackURL(NulConnectLocalization.text("OAuth2 callback host does not match"))
             }
             guard components.path == "/passport/v1/auth/httpsOauth2" else {
-                throw NulConnectLoginError.invalidCallbackURL("OAuth2 回调路径不匹配")
+                throw NulConnectLoginError.invalidCallbackURL(NulConnectLocalization.text("OAuth2 callback path does not match"))
             }
             let code = components.queryItems?.first(where: { $0.name == "code" && !($0.value ?? "").isEmpty })
             guard code != nil else {
-                throw NulConnectLoginError.invalidCallbackURL("OAuth2 回调缺少 code")
+                throw NulConnectLoginError.invalidCallbackURL(NulConnectLocalization.text("OAuth2 callback is missing a code"))
             }
             return components.url ?? url
         }
@@ -431,11 +444,11 @@ enum NulConnectLoginError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unsupportedAuthType(let value):
-            return "暂不支持的 WebView 登录类型: \(value)"
+            return NulConnectLocalization.format("Unsupported WebView sign-in type: %1$@", [String(describing: value)])
         case .noWebLoginMethods:
-            return "未找到可用的 WebView 登录方式"
+            return NulConnectLocalization.text("No supported WebView sign-in method found")
         case .noSession:
-            return "登录会话尚未初始化"
+            return NulConnectLocalization.text("Sign-in session has not been initialized")
         case .invalidCallbackURL(let message):
             return message
         case .failed(let message):

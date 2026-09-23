@@ -24,7 +24,7 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 SettingsLink {
-                    Label("设置", systemImage: "gearshape")
+                    Label(NulConnectLocalization.text("Settings"), systemImage: "gearshape")
                 }
             }
         }
@@ -47,7 +47,7 @@ struct ContentView: View {
             }
 
             VStack(spacing: 4) {
-                Text(model.connectionState.phase.title)
+                Text(verbatim: model.connectionState.phase.title)
                     .font(.title2.weight(.semibold))
             }
         }
@@ -71,9 +71,9 @@ struct ContentView: View {
     private var connectionDetails: some View {
         GroupBox {
             VStack(spacing: 10) {
-                DetailRow(title: "模式", value: model.routePresentationModeTitle, symbol: "switch.2")
-                DetailRow(title: "服务器", value: serverDisplayText, symbol: "server.rack")
-                DetailRow(title: "本地代理", value: model.proxyEndpointText, symbol: "dot.radiowaves.left.and.right") {
+                DetailRow(title: NulConnectLocalization.text("Mode"), value: model.routePresentationModeTitle, symbol: "switch.2")
+                DetailRow(title: NulConnectLocalization.text("Server"), value: serverDisplayText, symbol: "server.rack")
+                DetailRow(title: NulConnectLocalization.text("Local Proxy"), value: model.proxyEndpointText, symbol: "dot.radiowaves.left.and.right") {
                     copyProxyEndpoint()
                 }
             }
@@ -82,7 +82,7 @@ struct ContentView: View {
     }
 
     private var serverDisplayText: String {
-        let host = model.profile.serverHost.isEmpty ? "未配置服务器" : model.profile.serverHost
+        let host = model.profile.serverHost.isEmpty ? NulConnectLocalization.text("Server not configured") : model.profile.serverHost
         return "\(host):\(model.profile.serverPort)"
     }
 
@@ -122,14 +122,14 @@ struct ContentView: View {
     private var primaryActionTitle: String {
         if model.effectiveRouteMode == .tun {
             if isTunnelRunning {
-                return "断开连接"
+                return NulConnectLocalization.text("Disconnect")
             }
-            return model.needsLoginForTunnel ? "登录并连接" : "连接"
+            return model.needsLoginForTunnel ? NulConnectLocalization.text("Log In & Connect") : NulConnectLocalization.text("Connect")
         }
         if isProxyRunning {
-            return "断开连接"
+            return NulConnectLocalization.text("Disconnect")
         }
-        return model.needsLoginForProxy ? "登录并连接" : "连接"
+        return model.needsLoginForProxy ? NulConnectLocalization.text("Log In & Connect") : NulConnectLocalization.text("Connect")
     }
 
     private var primaryActionImage: String {
@@ -217,31 +217,31 @@ struct NulConnectSettingsView: View {
         TabView(selection: $selectedTab) {
             serviceSettings
                 .tabItem {
-                    Label("服务", systemImage: "server.rack")
+                    Label(NulConnectLocalization.text("Service"), systemImage: "server.rack")
                 }
                 .tag(SettingsTab.service)
 
             connectionSettings
                 .tabItem {
-                    Label("连接", systemImage: "network")
+                    Label(NulConnectLocalization.text("Connect"), systemImage: "network")
                 }
                 .tag(SettingsTab.connection)
 
             statisticsSettings
                 .tabItem {
-                    Label("统计", systemImage: "chart.xyaxis.line")
+                    Label(NulConnectLocalization.text("Statistics"), systemImage: "chart.xyaxis.line")
                 }
                 .tag(SettingsTab.statistics)
 
             helperSettings
                 .tabItem {
-                    Label("特权组件", systemImage: "shield.lefthalf.filled")
+                    Label(NulConnectLocalization.text("Privileged Component"), systemImage: "shield.lefthalf.filled")
                 }
                 .tag(SettingsTab.helper)
 
             aboutSettings
                 .tabItem {
-                    Label("关于", systemImage: "info.circle")
+                    Label(NulConnectLocalization.text("About"), systemImage: "info.circle")
                 }
                 .tag(SettingsTab.about)
         }
@@ -285,66 +285,66 @@ struct NulConnectSettingsView: View {
             }
         )
         .confirmationDialog(
-            "退出登录",
+            NulConnectLocalization.text("Log Out"),
             isPresented: $showingLogoutConfirmation,
             titleVisibility: .visible
         ) {
-            Button("断开连接并退出登录", role: .destructive) {
+            Button(NulConnectLocalization.text("Disconnect and Log Out"), role: .destructive) {
                 model.logout()
             }
-            Button("取消", role: .cancel) {}
+            Button(NulConnectLocalization.text("Cancel"), role: .cancel) {}
         } message: {
-            Text("退出登录将停止当前连接，并删除本机保存的会话及 Web 登录数据。")
+            Text(NulConnectLocalization.text("Logging out will stop the current connection and delete the saved session and web login data."))
         }
         .confirmationDialog(
-            "安装特权组件",
+            NulConnectLocalization.text("Install Privileged Component"),
             isPresented: $showingHelperInstallConfirmation,
             titleVisibility: .visible
         ) {
-            Button("继续安装", role: .destructive) {
+            Button(NulConnectLocalization.text("Continue Installation"), role: .destructive) {
                 Task {
                     do {
-                        try await model.ensureHelperInstalledOrUpToDate(reason: "正在安装特权组件")
+                        try await model.ensureHelperInstalledOrUpToDate(reason: NulConnectLocalization.text("Installing privileged component"))
                     } catch {
-                        // 状态已由 model 处理
+                        // The model reports the operation result.
                     }
                 }
             }
-            Button("取消", role: .cancel) {}
+            Button(NulConnectLocalization.text("Cancel"), role: .cancel) {}
         } message: {
-            Text("安装特权组件需要管理员权限，可能降低系统安全性，只有在你明确需要系统代理或 VPN 模式时才建议继续。")
+            Text(NulConnectLocalization.text("Installing the privileged component requires administrator access and may reduce system security. Continue only if you need system proxy or VPN mode."))
         }
         .confirmationDialog(
-            "卸载特权组件",
+            NulConnectLocalization.text("Uninstall Privileged Component"),
             isPresented: $showingHelperUninstallConfirmation,
             titleVisibility: .visible
         ) {
-            Button("卸载") {
+            Button(NulConnectLocalization.text("Uninstall")) {
                 model.uninstallHelper()
             }
-            Button("取消", role: .cancel) {}
+            Button(NulConnectLocalization.text("Cancel"), role: .cancel) {}
         } message: {
-            Text("这会移除系统中的特权组件、LaunchDaemon 和状态文件，卸载后系统代理与 VPN 模式需要重新安装才能使用。")
+            Text(NulConnectLocalization.text("This removes the privileged component, LaunchDaemon, and state files. Install it again to use system proxy or VPN mode."))
         }
     }
 
     private var helperSettings: some View {
         Form {
-            Section("特权组件") {
-                LabeledContent("已安装版本") {
+            Section(NulConnectLocalization.text("Privileged Component")) {
+                LabeledContent(NulConnectLocalization.text("Installed Version")) {
                     Text(model.helperVersionText)
                         .foregroundStyle(.secondary)
                         .textSelection(.disabled)
                 }
-                LabeledContent("内置版本") {
+                LabeledContent(NulConnectLocalization.text("Bundled Version")) {
                     Text(model.bundledHelperVersionText)
                         .foregroundStyle(.secondary)
                         .textSelection(.disabled)
                 }
 
                 SettingsActionRow(
-                    title: "安装或更新特权组件",
-                    subtitle: "安装特权组件以启用系统代理和 VPN 模式，非特殊情况不推荐安装。",
+                    title: NulConnectLocalization.text("Install or Update Privileged Component"),
+                    subtitle: NulConnectLocalization.text("Install the privileged component to enable system proxy and VPN mode. Installation is not recommended unless needed."),
                     systemImage: "arrow.down.circle.fill"
                 ) {
                     showingHelperInstallConfirmation = true
@@ -352,15 +352,15 @@ struct NulConnectSettingsView: View {
                 .disabled(model.isHelperActivityBusy || model.isVPNConnectedOrConnecting)
 
                 if model.isHelperActivityBusy {
-                    Text("安装过程中请保持此页可见，等待授权和启动完成。")
+                    Text(NulConnectLocalization.text("Keep this page open while authorization and startup finish."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 SettingsActionRow(
-                    title: "卸载特权组件",
-                    subtitle: "移除用于支持系统代理和 VPN 模式的辅助程序、启动项和本地状态文件。",
+                    title: NulConnectLocalization.text("Uninstall Privileged Component"),
+                    subtitle: NulConnectLocalization.text("Remove the helper, launch item, and local state files used for system proxy and VPN mode."),
                     systemImage: "trash"
                 ) {
                     showingHelperUninstallConfirmation = true
@@ -377,25 +377,25 @@ struct NulConnectSettingsView: View {
 
     private var serviceSettings: some View {
         Form {
-            Section("VPN 门户") {
-                TextField("服务器", text: $serverHostDraft)
+            Section(NulConnectLocalization.text("VPN Portal")) {
+                TextField(NulConnectLocalization.text("Server"), text: $serverHostDraft)
                     .onSubmit { commitServerHostDraft() }
 
-                PortTextField("端口", text: $serverPortDraft)
+                PortTextField(NulConnectLocalization.text("Port"), text: $serverPortDraft)
                     .onSubmit { commitServerPortDraft() }
             }
 
-            Section("账户") {
+            Section(NulConnectLocalization.text("Account")) {
                 if let summary = model.sessionSummary {
-                    LabeledContent("账号") {
+                    LabeledContent(NulConnectLocalization.text("Account")) {
                         Text(summary.username)
                             .foregroundStyle(.secondary)
                             .textSelection(.disabled)
                     }
 
                     SettingsActionRow(
-                        title: "退出登录",
-                        subtitle: "删除本机保存的登录会话、账户资源和 Web 登录数据。",
+                        title: NulConnectLocalization.text("Log Out"),
+                        subtitle: NulConnectLocalization.text("Delete the locally saved login session, account resources, and web login data."),
                         systemImage: "rectangle.portrait.and.arrow.right",
                         role: .destructive
                     ) {
@@ -403,15 +403,15 @@ struct NulConnectSettingsView: View {
                     }
                     .disabled(model.isLoggingOut)
                 } else {
-                    LabeledContent("账号") {
-                        Text("未登录")
+                    LabeledContent(NulConnectLocalization.text("Account")) {
+                        Text(NulConnectLocalization.text("Not logged in"))
                             .foregroundStyle(.secondary)
                             .textSelection(.disabled)
                     }
 
                     SettingsActionRow(
-                        title: "登录",
-                        subtitle: "通过统一身份认证登录到服务器。",
+                        title: NulConnectLocalization.text("Log In"),
+                        subtitle: NulConnectLocalization.text("Sign in to the server using single sign-on."),
                         systemImage: "person.badge.key"
                     ) {
                         model.startWebLogin()
@@ -425,13 +425,13 @@ struct NulConnectSettingsView: View {
 
     private var connectionSettings: some View {
         Form {
-            Section("模式") {
+            Section(NulConnectLocalization.text("Mode")) {
                 Picker(selection: Binding<NulConnectRouteMode>(
                     get: { model.effectiveRouteModePreference },
                     set: { newValue in
                         applySelectedRouteMode(newValue)
                     }
-                ), label: Text("连接模式")
+                ), label: Text(NulConnectLocalization.text("Connection Mode"))
                     .foregroundStyle(model.effectiveRouteMode == .tun ? .red : .primary)) {
                     ForEach(NulConnectRouteMode.allCases) { mode in
                         Text(mode.title).tag(mode)
@@ -444,7 +444,7 @@ struct NulConnectSettingsView: View {
                 if model.effectiveRouteMode == .tun {
                     PrivilegedFeatureNotice(
                         systemImage: "network.badge.shield.half.filled",
-                        text: "VPN 模式会接管所有流量，可能导致未知问题，非特殊情况不建议使用此模式。",
+                        text: NulConnectLocalization.text("VPN mode routes all traffic and may cause unexpected issues. Use it only when needed."),
                         isDangerous: true
                     )
                 }
@@ -455,7 +455,7 @@ struct NulConnectSettingsView: View {
                         model.setSystemProxyEnabled(newValue)
                     }
                 )) {
-                    Text("启用系统代理")
+                    Text(NulConnectLocalization.text("Enable System Proxy"))
                         .foregroundStyle(model.effectiveSystemProxyPreference ? .red : .primary)
                 }
                 .tint(.red)
@@ -464,7 +464,7 @@ struct NulConnectSettingsView: View {
                 if (model.effectiveSystemProxyPreference) {
                     PrivilegedFeatureNotice(
                         systemImage: "network.badge.shield.half.filled",
-                        text: "系统代理模式可能与其他代理软件发生冲突，非特殊情况不建议使用此模式。",
+                        text: NulConnectLocalization.text("System proxy mode may conflict with other proxy software. Use it only when needed."),
                         isDangerous: true
                     )
                 }
@@ -472,13 +472,13 @@ struct NulConnectSettingsView: View {
                 if !model.isHelperInstalled {
                     PrivilegedFeatureNotice(
                         systemImage: "lock.shield",
-                        text: "使用系统代理和 VPN 模式需要在“特权组件”页安装组件，非特殊情况不建议使用这些模式。"
+                        text: NulConnectLocalization.text("System proxy and VPN mode require the component on the Privileged Component tab. Use these modes only when needed.")
                     )
                 }
             }
 
-            Section("本地代理") {
-                PortTextField("监听端口", text: $localProxyPortDraft)
+            Section(NulConnectLocalization.text("Local Proxy")) {
+                PortTextField(NulConnectLocalization.text("Listening Port"), text: $localProxyPortDraft)
                     .onSubmit { commitLocalProxyPortDraft() }
                     .onChange(of: localProxyPortDraft) { _, _ in
                         commitLocalProxyPortDraft()
@@ -491,11 +491,11 @@ struct NulConnectSettingsView: View {
                 }
             }
 
-            Section("客户端参数") {
+            Section(NulConnectLocalization.text("Client Parameters")) {
                 TextField("User-Agent", text: $userAgentDraft)
                     .onSubmit { commitUserAgentDraft() }
 
-                Toggle("允许不安全 TLS", isOn: Binding(
+                Toggle(NulConnectLocalization.text("Allow Insecure TLS"), isOn: Binding(
                     get: { model.profile.allowInsecureTLS },
                     set: { newValue in
                         model.replaceProfile { $0.allowInsecureTLS = newValue }
@@ -538,20 +538,20 @@ struct NulConnectSettingsView: View {
 
     private var aboutSettings: some View {
         Form {
-            Section("关于 NulConnect") {
-                LabeledContent("版本号") {
+            Section(NulConnectLocalization.text("About NulConnect")) {
+                LabeledContent(NulConnectLocalization.text("Version")) {
                     Text(appVersionText)
                         .textSelection(.disabled)
                 }
-                LabeledContent("构建版本号") {
+                LabeledContent(NulConnectLocalization.text("Build")) {
                     Text(appBuildText)
                         .textSelection(.disabled)
                 }
-                LabeledContent("版权信息") {
+                LabeledContent(NulConnectLocalization.text("Copyright")) {
                     Text("Copyright (C) NulStudio 2014-2026")
                         .textSelection(.disabled)
                 }
-                LabeledContent("许可证") {
+                LabeledContent(NulConnectLocalization.text("License")) {
                     Text("GNU Affero General Public Licence v3.0")
                         .textSelection(.disabled)
                 }
@@ -582,12 +582,12 @@ struct NulConnectSettingsView: View {
 
     private var appVersionText: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        return version?.isEmpty == false ? version ?? "未知" : "未知"
+        return version?.isEmpty == false ? version ?? NulConnectLocalization.text("Unknown") : NulConnectLocalization.text("Unknown")
     }
 
     private var appBuildText: String {
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-        return build?.isEmpty == false ? build ?? "未知" : "未知"
+        return build?.isEmpty == false ? build ?? NulConnectLocalization.text("Unknown") : NulConnectLocalization.text("Unknown")
     }
 
     private func syncPortalDrafts() {
@@ -648,13 +648,13 @@ struct NulConnectSettingsView: View {
     private var localProxyPortError: String? {
         let value = localProxyPortDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else {
-            return "请输入本地代理端口"
+            return NulConnectLocalization.text("Enter a local proxy port")
         }
         guard value.allSatisfy(\.isNumber) else {
-            return "端口号只能包含数字"
+            return NulConnectLocalization.text("Port must contain digits only")
         }
         guard let parsed = UInt32(value), (1...UInt32(UInt16.max)).contains(parsed) else {
-            return "端口号必须在 1 到 65535 之间"
+            return NulConnectLocalization.text("Port must be between 1 and 65535")
         }
         return nil
     }
@@ -708,10 +708,10 @@ private struct NulConnectStatisticsSettingsView: View {
 
     var body: some View {
         Form {
-            Section("实时流量") {
+            Section(NulConnectLocalization.text("Live Traffic")) {
                 HStack(spacing: 28) {
                     trafficMetric(
-                        title: "下载",
+                        title: NulConnectLocalization.text("Download"),
                         value: NulConnectTrafficFormatter.rate(
                             trafficStore.statistics.downloadBytesPerSecond
                         ),
@@ -719,7 +719,7 @@ private struct NulConnectStatisticsSettingsView: View {
                         color: .blue
                     )
                     trafficMetric(
-                        title: "上传",
+                        title: NulConnectLocalization.text("Upload"),
                         value: NulConnectTrafficFormatter.rate(
                             trafficStore.statistics.uploadBytesPerSecond
                         ),
@@ -730,20 +730,20 @@ private struct NulConnectStatisticsSettingsView: View {
                 .padding(.vertical, 4)
             }
 
-            Section("本次连接") {
+            Section(NulConnectLocalization.text("This Connection")) {
                 LabeledContent(
-                    "已下载",
+                    NulConnectLocalization.text("Downloaded"),
                     value: NulConnectTrafficFormatter.bytes(
                         trafficStore.statistics.counters.downloadedBytes
                     )
                 )
                 LabeledContent(
-                    "已上传",
+                    NulConnectLocalization.text("Uploaded"),
                     value: NulConnectTrafficFormatter.bytes(
                         trafficStore.statistics.counters.uploadedBytes
                     )
                 )
-                LabeledContent("连接时长", value: connectionDurationText)
+                LabeledContent(NulConnectLocalization.text("Connection Duration"), value: connectionDurationText)
             }
         }
         .formStyle(.grouped)
@@ -857,7 +857,7 @@ private struct DetailRow<ActionContent: View>: View {
                     Image(systemName: "doc.on.doc")
                 }
                 .buttonStyle(.borderless)
-                .help("复制")
+                .help(NulConnectLocalization.text("Copy"))
             } else {
                 actionContent
             }

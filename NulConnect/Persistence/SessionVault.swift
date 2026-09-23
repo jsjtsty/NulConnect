@@ -73,7 +73,7 @@ final class SessionVault {
             throw NSError(
                 domain: NSOSStatusErrorDomain,
                 code: Int(status),
-                userInfo: [NSLocalizedDescriptionKey: "无法生成设备标识"]
+                userInfo: [NSLocalizedDescriptionKey: NulConnectLocalization.text("Could not generate device identifier")]
             )
         }
         return bytes.map { String(format: "%02x", $0) }.joined()
