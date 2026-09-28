@@ -50,8 +50,8 @@ final class NulConnectAppDelegate: NSObject, NSApplicationDelegate {
             openSettings: openSettings
         )
         if isNewModel {
-            webLoginObservation = model.$webLoginSession
-                .compactMap { $0?.id }
+            webLoginObservation = model.$webLoginWindowRequest
+                .compactMap { $0 }
                 .removeDuplicates()
                 .sink { [weak self] _ in
                     self?.openWebLogin?()

@@ -10,10 +10,11 @@ nonisolated final class NulConnectSystemProxyManager: @unchecked Sendable {
     func enable(
         endpoint: NulConnectProxyEndpoint,
         serverHost: String,
+        pacURL: String? = nil,
         helperActivityReporter: NulConnectHelperClient.ActivityReporter? = nil
     ) async throws -> Int {
         try await helperClient.ensureInstalledOrUpToDate(reporter: helperActivityReporter)
-        return try await helperClient.setSystemProxy(endpoint: endpoint, serverHost: serverHost)
+        return try await helperClient.setSystemProxy(endpoint: endpoint, serverHost: serverHost, pacURL: pacURL)
     }
 
     func restore() async throws {

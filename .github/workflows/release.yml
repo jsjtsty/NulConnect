@@ -34,8 +34,10 @@ jobs:
       - name: Download prebuilt dependencies
         run: ./scripts/prepare-dependencies.sh --arch "${{ matrix.arch }}"
 
-      - name: Install DMG packaging tool
-        run: brew install create-dmg
+      - name: Set up Python for DMG packaging
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
 
       - name: Build application
         run: |

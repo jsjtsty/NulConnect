@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import WebKit
 
@@ -14,198 +15,259 @@ private func loggableURL(_ url: URL) -> String {
     return components.string ?? "<unparseable>"
 }
 
-struct NulConnectWebViewLoginView: NSViewRepresentable {
-    let session: NulConnectWebLoginSession
-    let onCaptured: (URL) -> Void
-    let onStatusChange: (String) -> Void
-    let onFailure: (String) -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            session: session,
-            onCaptured: onCaptured,
-            onStatusChange: onStatusChange,
-            onFailure: onFailure
-        )
+/// Drives one web sign-in. The web view lives here rather than in the login
+/// window so the SSO flow can first run without any window: with SSO
+/// "remember me", the portal redirects straight to the callback and the
+/// user never needs to see a page. Only when the page actually waits for
+/// the user is the same web view (state intact, no reload) moved into the
+/// login window.
+@MainActor
+final class NulConnectWebLoginController: NSObject, ObservableObject, WKNavigationDelegate {
+    enum Mode {
+        /// Not shown; waiting to see whether SSO completes by itself.
+        case silent
+        case interactive
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    /// Longest silent attempt before the page is assumed to need the user.
+    private let silentTimeout: Duration
+    /// A page that stops navigating for this long is checked for input
+    /// fields the user has to fill in.
+    private let settleDelay: Duration
+
+    let session: NulConnectWebLoginSession
+    let webView: WKWebView
+    @Published private(set) var errorMessage: String?
+    private(set) var mode: Mode
+
+    var onCaptured: ((URL) -> Void)?
+    /// Called once when a silent attempt turns out to need the user.
+    var onNeedsInteraction: ((String) -> Void)?
+
+    private var didCapture = false
+    private var isStopped = false
+    private var timeoutTask: Task<Void, Never>?
+    private var settleTask: Task<Void, Never>?
+
+    init(
+        session: NulConnectWebLoginSession,
+        mode: Mode,
+        silentTimeout: Duration = .seconds(8),
+        settleDelay: Duration = .milliseconds(1500)
+    ) {
+        self.session = session
+        self.mode = mode
+        self.silentTimeout = silentTimeout
+        self.settleDelay = settleDelay
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.navigationDelegate = context.coordinator
+        // A real size, even while not in a window, so page layout and the
+        // visibility check of input fields behave like in the login window.
+        webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 980, height: 600), configuration: configuration)
+        super.init()
+        webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = true
-        context.coordinator.attach(webView)
-        print("[NulConnect][WebLogin] load startURL=\(loggableURL(session.startURL))")
+    }
+
+    func start() {
+        print("[NulConnect][WebLogin] load mode=\(mode) startURL=\(loggableURL(session.startURL))")
         webView.load(URLRequest(url: session.startURL))
-        return webView
+        if mode == .silent {
+            let silentTimeout = self.silentTimeout
+            timeoutTask = Task { [weak self] in
+                try? await Task.sleep(for: silentTimeout)
+                guard !Task.isCancelled else { return }
+                self?.escalate(reason: "timeout")
+            }
+        }
     }
 
-    func updateNSView(_ nsView: WKWebView, context: Context) {
-        context.coordinator.update(session: session)
+    /// Switches to a visible sign-in; the page keeps its current state.
+    func becomeInteractive() {
+        mode = .interactive
+        timeoutTask?.cancel()
+        settleTask?.cancel()
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
-        private var session: NulConnectWebLoginSession
-        private let onCaptured: (URL) -> Void
-        private let onStatusChange: (String) -> Void
-        private let onFailure: (String) -> Void
-        private weak var webView: WKWebView?
-        private var didCapture = false
+    func stop() {
+        isStopped = true
+        timeoutTask?.cancel()
+        settleTask?.cancel()
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+    }
 
-        init(
-            session: NulConnectWebLoginSession,
-            onCaptured: @escaping (URL) -> Void,
-            onStatusChange: @escaping (String) -> Void,
-            onFailure: @escaping (String) -> Void
-        ) {
-            self.session = session
-            self.onCaptured = onCaptured
-            self.onStatusChange = onStatusChange
-            self.onFailure = onFailure
-        }
+    private func escalate(reason: String) {
+        guard mode == .silent, !didCapture, !isStopped else { return }
+        print("[NulConnect][WebLogin] silent sign-in needs the user: \(reason)")
+        becomeInteractive()
+        onNeedsInteraction?(reason)
+    }
 
-        func attach(_ webView: WKWebView) {
-            self.webView = webView
-        }
-
-        func update(session: NulConnectWebLoginSession) {
-            self.session = session
-        }
-
-        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            let url = webView.url?.absoluteString ?? session.startURL.absoluteString
-            print("[NulConnect][WebLogin] didStartProvisionalNavigation url=\(loggableURL(webView.url ?? session.startURL))")
-            onStatusChange(url)
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            let url = webView.url?.absoluteString ?? session.startURL.absoluteString
-            print("[NulConnect][WebLogin] didFinish url=\(loggableURL(webView.url ?? session.startURL))")
-            onStatusChange(url)
-        }
-
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            guard shouldReport(error: error) else { return }
-            print("[NulConnect][WebLogin] didFail error=\(error.localizedDescription)")
-            onFailure(error.localizedDescription)
-        }
-
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            guard shouldReport(error: error) else { return }
-            print("[NulConnect][WebLogin] didFailProvisionalNavigation error=\(error.localizedDescription)")
-            onFailure(error.localizedDescription)
-        }
-
-        func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
-            let url = webView.url?.absoluteString ?? session.startURL.absoluteString
-            print("[NulConnect][WebLogin] didReceiveServerRedirectForProvisionalNavigation url=\(loggableURL(webView.url ?? session.startURL))")
-            if didCapture {
-                return
-            }
-            if let currentURL = webView.url, session.capturePolicy.shouldCapture(currentURL) {
-                capture(currentURL)
+    /// Visible text/password fields mean the portal is waiting for input.
+    private func checkForUserInput() {
+        let script = """
+        (() => {
+          const visible = (element) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+          };
+          const fields = document.querySelectorAll('input[type="password"], input[type="text"], input[type="tel"], input[type="email"], input[type="number"], input:not([type])');
+          return Array.from(fields).some(visible);
+        })()
+        """
+        webView.evaluateJavaScript(script) { [weak self] result, _ in
+            Task { @MainActor [weak self] in
+                if (result as? Bool) == true {
+                    self?.escalate(reason: "page waits for input")
+                }
             }
         }
+    }
 
-        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            guard let url = navigationAction.request.url else {
-                decisionHandler(.allow)
-                return
-            }
-            handle(url: url, decisionHandler: decisionHandler)
+    // MARK: WKNavigationDelegate
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        settleTask?.cancel()
+        print("[NulConnect][WebLogin] didStartProvisionalNavigation url=\(loggableURL(webView.url ?? session.startURL))")
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        print("[NulConnect][WebLogin] didFinish url=\(loggableURL(webView.url ?? session.startURL))")
+        guard mode == .silent else { return }
+        settleTask?.cancel()
+        let settleDelay = self.settleDelay
+        settleTask = Task { [weak self] in
+            try? await Task.sleep(for: settleDelay)
+            guard !Task.isCancelled else { return }
+            self?.checkForUserInput()
         }
+    }
 
-        func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-            guard let url = navigationResponse.response.url else {
-                decisionHandler(.allow)
-                return
-            }
-            if didCapture {
-                decisionHandler(.cancel)
-                return
-            }
-            if session.capturePolicy.shouldCapture(url) {
-                decisionHandler(.cancel)
-                capture(url)
-                return
-            }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        report(error)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        report(error)
+    }
+
+    func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+        print("[NulConnect][WebLogin] didReceiveServerRedirectForProvisionalNavigation url=\(loggableURL(webView.url ?? session.startURL))")
+        if !didCapture, let currentURL = webView.url, session.capturePolicy.shouldCapture(currentURL) {
+            capture(currentURL)
+        }
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+        guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
+            return
         }
+        if didCapture {
+            decisionHandler(.cancel)
+            return
+        }
+        if session.capturePolicy.shouldCapture(url) {
+            decisionHandler(.cancel)
+            capture(url)
+            return
+        }
+        decisionHandler(.allow)
+    }
 
-        private func handle(url: URL, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-            if didCapture {
-                decisionHandler(.cancel)
-                return
-            }
-            if session.capturePolicy.shouldCapture(url) {
-                decisionHandler(.cancel)
-                capture(url)
-                return
-            }
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void) {
+        guard let url = navigationResponse.response.url else {
             decisionHandler(.allow)
+            return
         }
+        if didCapture {
+            decisionHandler(.cancel)
+            return
+        }
+        if session.capturePolicy.shouldCapture(url) {
+            decisionHandler(.cancel)
+            capture(url)
+            return
+        }
+        decisionHandler(.allow)
+    }
 
-        private func capture(_ url: URL) {
-            guard !didCapture else { return }
-            didCapture = true
-            print("[NulConnect][WebLogin] capture url=\(loggableURL(url))")
-            onStatusChange(NulConnectLocalization.text("Callback URL captured"))
-            onCaptured(url)
-            webView?.stopLoading()
-        }
+    private func capture(_ url: URL) {
+        guard !didCapture, !isStopped else { return }
+        didCapture = true
+        timeoutTask?.cancel()
+        settleTask?.cancel()
+        print("[NulConnect][WebLogin] capture mode=\(mode) url=\(loggableURL(url))")
+        webView.stopLoading()
+        onCaptured?(url)
+    }
 
-        private func shouldReport(error: Error) -> Bool {
-            if didCapture {
-                return false
-            }
-            let nsError = error as NSError
-            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
-                return false
-            }
-            return true
+    private func report(_ error: Error) {
+        let nsError = error as NSError
+        guard !didCapture, !(nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled) else {
+            return
         }
+        print("[NulConnect][WebLogin] navigation failed error=\(error.localizedDescription)")
+        errorMessage = error.localizedDescription
+        escalate(reason: "navigation failed")
+    }
+}
+
+/// Shows the controller's existing web view; moving it here keeps the page
+/// exactly as the silent attempt left it.
+struct NulConnectHostedWebView: NSViewRepresentable {
+    let webView: WKWebView
+
+    func makeNSView(context: Context) -> NSView {
+        let container = NSView()
+        attach(to: container)
+        return container
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if webView.superview !== nsView {
+            nsView.subviews.forEach { $0.removeFromSuperview() }
+            attach(to: nsView)
+        }
+    }
+
+    private func attach(to container: NSView) {
+        webView.removeFromSuperview()
+        webView.frame = container.bounds
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
     }
 }
 
 struct NulConnectWebLoginSheet: View {
-    let session: NulConnectWebLoginSession
-    let onCaptured: (URL) -> Void
+    @ObservedObject var controller: NulConnectWebLoginController
     let onCancel: () -> Void
-    @State private var errorMessage: String?
 
-    init(session: NulConnectWebLoginSession, onCaptured: @escaping (URL) -> Void, onCancel: @escaping () -> Void) {
-        self.session = session
-        self.onCaptured = onCaptured
-        self.onCancel = onCancel
+    private var session: NulConnectWebLoginSession {
+        controller.session
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
 
-            if let errorMessage {
+            if let errorMessage = controller.errorMessage {
                 errorBanner(errorMessage)
                     .padding(.horizontal, 18)
                     .padding(.bottom, 12)
             }
 
-            NulConnectWebViewLoginView(
-                session: session,
-                onCaptured: onCaptured,
-                onStatusChange: { _ in },
-                onFailure: { message in
-                    errorMessage = message
-                }
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-            )
-            .padding(.horizontal, 18)
-            .padding(.bottom, 18)
+            NulConnectHostedWebView(webView: controller.webView)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+                .padding(.horizontal, 18)
+                .padding(.bottom, 18)
         }
         .frame(minWidth: 980, minHeight: 680)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -258,12 +320,9 @@ struct NulConnectWebLoginWindow: View {
 
     var body: some View {
         Group {
-            if let session = model.webLoginSession {
+            if let controller = model.webLoginController {
                 NulConnectWebLoginSheet(
-                    session: session,
-                    onCaptured: { callbackURL in
-                        model.completeWebLogin(with: callbackURL)
-                    },
+                    controller: controller,
                     onCancel: {
                         model.cancelWebLogin()
                     }

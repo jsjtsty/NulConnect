@@ -7,12 +7,17 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 18) {
-                connectionHeader
-                primaryAction
-                connectionDetails
+            if model.isLoginConfigurationReady {
+                VStack(spacing: 18) {
+                    connectionHeader
+                    primaryAction
+                    connectionDetails
+                }
+                .padding(24)
+            } else {
+                NulConnectPortalSetupView()
+                    .padding(24)
             }
-            .padding(24)
         }
         .frame(width: 460)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -73,9 +78,34 @@ struct ContentView: View {
             VStack(spacing: 10) {
                 DetailRow(title: NulConnectLocalization.text("Mode"), value: model.routePresentationModeTitle, symbol: "switch.2")
                 DetailRow(title: NulConnectLocalization.text("Server"), value: serverDisplayText, symbol: "server.rack")
-                DetailRow(title: NulConnectLocalization.text("Local Proxy"), value: model.proxyEndpointText, symbol: "dot.radiowaves.left.and.right") {
-                    copyProxyEndpoint()
-                }
+                DetailRow(
+                    title: NulConnectLocalization.text("Local Proxy"),
+                    value: model.proxyEndpointText,
+                    symbol: "dot.radiowaves.left.and.right",
+                    actionContent: {
+                        Menu {
+                            Button(NulConnectLocalization.text("Copy Address")) {
+                                copyToPasteboard(model.proxyEndpointText)
+                            }
+                            if let command = model.terminalProxyCommand {
+                                Button(NulConnectLocalization.text("Copy Terminal Proxy Command")) {
+                                    copyToPasteboard(command)
+                                }
+                            }
+                            if let option = model.sshProxyCommand {
+                                Button(NulConnectLocalization.text("Copy SSH ProxyCommand Option")) {
+                                    copyToPasteboard(option)
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help(NulConnectLocalization.text("Copy"))
+                    }
+                )
             }
         }
         .groupBoxStyle(.automatic)
@@ -170,6 +200,7 @@ struct ContentView: View {
     }
 
     private func performPrimaryConnectionAction() {
+        model.noteUserInitiatedAction()
         switch model.effectiveRouteMode {
         case .proxy:
             if isProxyRunning {
@@ -186,9 +217,9 @@ struct ContentView: View {
         }
     }
 
-    private func copyProxyEndpoint() {
+    private func copyToPasteboard(_ text: String) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(model.proxyEndpointText, forType: .string)
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 
@@ -198,6 +229,7 @@ struct NulConnectSettingsView: View {
         case connection
         case statistics
         case helper
+        case advanced
         case about
     }
 
@@ -238,6 +270,12 @@ struct NulConnectSettingsView: View {
                     Label(NulConnectLocalization.text("Privileged Component"), systemImage: "shield.lefthalf.filled")
                 }
                 .tag(SettingsTab.helper)
+
+            advancedSettings
+                .tabItem {
+                    Label(NulConnectLocalization.text("Advanced"), systemImage: "gearshape.2")
+                }
+                .tag(SettingsTab.advanced)
 
             aboutSettings
                 .tabItem {
@@ -375,6 +413,41 @@ struct NulConnectSettingsView: View {
         }
     }
 
+    private var advancedSettings: some View {
+        Form {
+            Section(NulConnectLocalization.text("Startup")) {
+                Toggle(NulConnectLocalization.text("Open at Login"), isOn: Binding(
+                    get: { model.isLaunchAtLoginEnabled },
+                    set: { model.setLaunchAtLogin($0) }
+                ))
+                Toggle(NulConnectLocalization.text("Connect Automatically on Launch"), isOn: Binding(
+                    get: { model.profile.autoConnectOnLaunch },
+                    set: { newValue in model.replaceProfile { $0.autoConnectOnLaunch = newValue } }
+                ))
+            }
+
+            Section(NulConnectLocalization.text("Notifications")) {
+                Toggle(NulConnectLocalization.text("Notify When the Connection Drops"), isOn: Binding(
+                    get: { model.profile.notificationsEnabled },
+                    set: { newValue in model.replaceProfile { $0.notificationsEnabled = newValue } }
+                ))
+            }
+
+            Section(NulConnectLocalization.text("Client Parameters")) {
+                TextField("User-Agent", text: $userAgentDraft)
+                    .onSubmit { commitUserAgentDraft() }
+
+                Toggle(NulConnectLocalization.text("Allow Insecure TLS"), isOn: Binding(
+                    get: { model.profile.allowInsecureTLS },
+                    set: { newValue in
+                        model.replaceProfile { $0.allowInsecureTLS = newValue }
+                    }
+                ))
+            }
+        }
+        .formStyle(.grouped)
+    }
+
     private var serviceSettings: some View {
         Form {
             Section(NulConnectLocalization.text("VPN Portal")) {
@@ -461,7 +534,23 @@ struct NulConnectSettingsView: View {
                 .tint(.red)
                 .disabled(!model.canChangeSystemProxyPreference || model.isSystemProxyBusy || !model.isHelperInstalled)
 
-                if (model.effectiveSystemProxyPreference) {
+                if model.effectiveSystemProxyPreference {
+                    Picker(NulConnectLocalization.text("System Proxy Scope"), selection: Binding(
+                        get: { model.profile.systemProxyMode },
+                        set: { model.setSystemProxyMode($0) }
+                    )) {
+                        ForEach(NulConnectSystemProxyMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .disabled(model.isSystemProxyBusy)
+
+                    if model.profile.systemProxyMode == .pac {
+                        Text(NulConnectLocalization.text("Only intranet resources use the proxy. Other traffic keeps working even if NulConnect quits. Apps that ignore PAC files (many command-line tools) are not proxied."))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
                     PrivilegedFeatureNotice(
                         systemImage: "network.badge.shield.half.filled",
                         text: NulConnectLocalization.text("System proxy mode may conflict with other proxy software. Use it only when needed."),
@@ -489,18 +578,6 @@ struct NulConnectSettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.red)
                 }
-            }
-
-            Section(NulConnectLocalization.text("Client Parameters")) {
-                TextField("User-Agent", text: $userAgentDraft)
-                    .onSubmit { commitUserAgentDraft() }
-
-                Toggle(NulConnectLocalization.text("Allow Insecure TLS"), isOn: Binding(
-                    get: { model.profile.allowInsecureTLS },
-                    set: { newValue in
-                        model.replaceProfile { $0.allowInsecureTLS = newValue }
-                    }
-                ))
             }
         }
         .formStyle(.grouped)
@@ -626,7 +703,12 @@ struct NulConnectSettingsView: View {
     }
 
     private func commitServerHostDraft() {
-        model.replaceProfile { $0.serverHost = serverHostDraft }
+        guard let address = NulConnectPortalAddress.parse(serverHostDraft) else {
+            model.replaceProfile { $0.serverHost = serverHostDraft.trimmingCharacters(in: .whitespacesAndNewlines) }
+            return
+        }
+        model.configurePortal(address)
+        syncPortalDrafts()
     }
 
     private func commitServerPortDraft() {
@@ -925,4 +1007,80 @@ private struct SettingsActionRow: View {
     NulConnectSettingsView()
         .environmentObject(model)
         .environmentObject(model.trafficStore)
+}
+
+/// First-run step shown until a VPN portal is configured: without it no
+/// sign-in or connection can work, so ask for it up front.
+private struct NulConnectPortalSetupView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var addressDraft = ""
+    @State private var showsError = false
+    @FocusState private var addressFocused: Bool
+
+    var body: some View {
+        VStack(spacing: 18) {
+            VStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.14))
+                        .frame(width: 88, height: 88)
+                    Image(systemName: "network")
+                        .font(.system(size: 34, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                }
+                Text(NulConnectLocalization.text("Welcome to NulConnect"))
+                    .font(.title2.weight(.semibold))
+                Text(NulConnectLocalization.text("Enter the address of your organization's VPN portal. You can paste the link you open in a browser to sign in."))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                TextField(
+                    NulConnectLocalization.text("VPN Portal Address"),
+                    text: $addressDraft,
+                    prompt: Text(verbatim: "vpn.example.edu")
+                )
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.large)
+                .focused($addressFocused)
+                .onSubmit(save)
+                .onChange(of: addressDraft) { _, _ in
+                    showsError = false
+                }
+
+                if showsError {
+                    Label(NulConnectLocalization.text("Enter a host name such as vpn.example.edu or a portal link starting with https://"), systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Button(action: save) {
+                Text(NulConnectLocalization.text("Continue"))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            .disabled(addressDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .frame(maxWidth: .infinity)
+        .onAppear {
+            addressDraft = model.profile.serverHost
+            addressFocused = true
+        }
+    }
+
+    private func save() {
+        guard let address = NulConnectPortalAddress.parse(addressDraft),
+              address.host != "localhost",
+              address.host != "127.0.0.1" else {
+            showsError = true
+            return
+        }
+        model.configurePortal(address)
+    }
 }

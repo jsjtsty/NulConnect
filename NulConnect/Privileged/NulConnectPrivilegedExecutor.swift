@@ -19,31 +19,21 @@ nonisolated enum NulConnectPrivilegedExecutorError: LocalizedError {
 
 nonisolated enum NulConnectPrivilegedExecutor {
     static func runShellScript(_ body: String, name: String) throws {
+        // The script travels as an argument instead of through a temporary
+        // file, so no other process of this user can swap it between writing
+        // and the administrator-authorized execution.
         let script = """
-        #!/bin/sh
         set -eu
         \(body)
         """
-
-        let tempDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("NulConnect-Privileged", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-        let scriptURL = tempDirectory.appendingPathComponent(
-            "\(name)-\(UUID().uuidString).sh",
-            isDirectory: false
-        )
-        guard let scriptData = script.data(using: .utf8) else {
-            throw NulConnectPrivilegedExecutorError.scriptEncodingFailed
-        }
-        try scriptData.write(to: scriptURL, options: [.atomic])
-        defer {
-            try? FileManager.default.removeItem(at: scriptURL)
-        }
-
-        let command = "do shell script \(appleScriptStringLiteral("/bin/sh \(shellQuote(scriptURL.path))")) with administrator privileges"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", command]
+        process.arguments = [
+            "-e", "on run argv",
+            "-e", "do shell script (item 1 of argv) with administrator privileges",
+            "-e", "end run",
+            script
+        ]
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
@@ -64,6 +54,7 @@ nonisolated enum NulConnectPrivilegedExecutor {
             let message = [stdout, stderr]
                 .joined(separator: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            NulConnectDiagnostics.log("[NulConnect][Privileged] \(name) failed: \(message)")
             throw NulConnectPrivilegedExecutorError.commandFailed(
                 message.isEmpty ? "unknown error" : message
             )
@@ -72,11 +63,5 @@ nonisolated enum NulConnectPrivilegedExecutor {
 
     static func shellQuote(_ string: String) -> String {
         "'" + string.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-    }
-
-    private static func appleScriptStringLiteral(_ string: String) -> String {
-        "\"" + string
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 }

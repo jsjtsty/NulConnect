@@ -107,6 +107,8 @@ struct ATRProxyServiceConfiguration: Sendable {
     var idleTimeout: UInt64
     var enableHTTP: Bool
     var enableSOCKS5: Bool
+    /// Enables the PAC file at `/proxy.pac?token=<pacToken>`.
+    var pacToken: String? = nil
 }
 
 struct ATRProxyServiceEndpoint: Sendable {
@@ -728,15 +730,18 @@ private nonisolated func withClientConfiguration<T>(_ configuration: ATRClientCo
 
 private nonisolated func withProxyServiceConfiguration<T>(_ configuration: ATRProxyServiceConfiguration, _ body: (atr_proxy_service_config_t) throws -> T) throws -> T {
     try withCStringValue(configuration.listenHost) { listenHost in
-        let config = atr_proxy_service_config_t(
-            listen_host: listenHost,
-            listen_port: configuration.listenPort,
-            connect_timeout_ms: configuration.connectTimeout,
-            idle_timeout_ms: configuration.idleTimeout,
-            enable_http: configuration.enableHTTP,
-            enable_socks5: configuration.enableSOCKS5
-        )
-        return try body(config)
+        try withOptionalCStringValue(configuration.pacToken) { pacToken in
+            let config = atr_proxy_service_config_t(
+                listen_host: listenHost,
+                listen_port: configuration.listenPort,
+                connect_timeout_ms: configuration.connectTimeout,
+                idle_timeout_ms: configuration.idleTimeout,
+                enable_http: configuration.enableHTTP,
+                enable_socks5: configuration.enableSOCKS5,
+                pac_token: pacToken
+            )
+            return try body(config)
+        }
     }
 }
 

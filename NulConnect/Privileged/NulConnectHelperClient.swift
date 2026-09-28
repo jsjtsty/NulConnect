@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Dispatch
 import Darwin
@@ -120,13 +121,28 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
             await reporter(.installing(message: NulConnectLocalization.text("Copying the helper and launch item")))
         }
         let plist = try propertyListXMLString(from: launchDaemonPlistObject())
+        let expectedDigest = try Self.sha256Hex(of: helperURL)
+        let stagedHelperPath = Self.installedHelperPath + ".new"
+        // Copy into the root-owned directory first and verify the digest
+        // there: the app bundle may be writable by this user, so the file
+        // could otherwise be replaced between this check and the copy.
         let script = """
         mkdir -p \(NulConnectPrivilegedExecutor.shellQuote(Self.installDirectory))
+        chown root:wheel \(NulConnectPrivilegedExecutor.shellQuote(Self.installDirectory))
+        chmod 755 \(NulConnectPrivilegedExecutor.shellQuote(Self.installDirectory))
         mkdir -p \(NulConnectPrivilegedExecutor.shellQuote(Self.stateDirectory))
         rm -f /Library/Logs/NulConnect/helper.log
-        cp -f \(NulConnectPrivilegedExecutor.shellQuote(helperURL.path)) \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
-        chown root:wheel \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
-        chmod 755 \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
+        rm -f \(NulConnectPrivilegedExecutor.shellQuote(stagedHelperPath))
+        cp \(NulConnectPrivilegedExecutor.shellQuote(helperURL.path)) \(NulConnectPrivilegedExecutor.shellQuote(stagedHelperPath))
+        chown root:wheel \(NulConnectPrivilegedExecutor.shellQuote(stagedHelperPath))
+        chmod 755 \(NulConnectPrivilegedExecutor.shellQuote(stagedHelperPath))
+        actual_digest=$(/usr/bin/shasum -a 256 \(NulConnectPrivilegedExecutor.shellQuote(stagedHelperPath)) | /usr/bin/cut -d ' ' -f 1)
+        if [ "$actual_digest" != \(NulConnectPrivilegedExecutor.shellQuote(expectedDigest)) ]; then
+          rm -f \(NulConnectPrivilegedExecutor.shellQuote(stagedHelperPath))
+          echo "privileged component checksum mismatch" >&2
+          exit 1
+        fi
+        mv -f \(NulConnectPrivilegedExecutor.shellQuote(stagedHelperPath)) \(NulConnectPrivilegedExecutor.shellQuote(Self.installedHelperPath))
         cat > \(NulConnectPrivilegedExecutor.shellQuote(Self.launchDaemonPath)) <<'NULCONNECT_PLIST'
         \(plist)
         NULCONNECT_PLIST
@@ -147,6 +163,11 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
         if let reporter {
             await reporter(.succeeded(message: NulConnectLocalization.text("Privileged component installed and started")))
         }
+    }
+
+    private static func sha256Hex(of url: URL) throws -> String {
+        let data = try Data(contentsOf: url)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private func startInstalledHelper(reporter: ActivityReporter? = nil) async throws {
@@ -313,15 +334,19 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
         _ = try await send(command: ["command": "stop_tun"])
     }
 
-    func setSystemProxy(endpoint: NulConnectProxyEndpoint, serverHost: String) async throws -> Int {
-        let response = try await send(command: [
+    func setSystemProxy(endpoint: NulConnectProxyEndpoint, serverHost: String, pacURL: String? = nil) async throws -> Int {
+        var command: [String: Any] = [
             "command": "set_system_proxy",
             "endpoint": [
                 "host": endpoint.host,
                 "port": Int(endpoint.port)
             ],
             "server_host": serverHost
-        ])
+        ]
+        if let pacURL {
+            command["pac_url"] = pacURL
+        }
+        let response = try await send(command: command)
         return response["services"] as? Int ?? 0
     }
 

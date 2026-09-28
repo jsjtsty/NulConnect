@@ -73,27 +73,35 @@ dmg_path="$OUTPUT_DIR/$dmg_name"
 echo "app:    $APP_PATH"
 echo "output: $dmg_path"
 
-if command -v create-dmg >/dev/null 2>&1; then
-  staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/nulconnect-dmg.XXXXXX")"
-  cleanup() {
-    rm -rf "$staging_dir"
-  }
-  trap cleanup EXIT
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DMGBUILD_VERSION="1.6.5"
+DMGBUILD_VENV="${NULCONNECT_DMGBUILD_VENV:-$PROJECT_DIR/.build/dmgbuild-venv}"
 
-  cp -R "$APP_PATH" "$staging_dir/"
-  create-dmg \
-    --volname "$volume_name" \
-    --window-pos 200 120 \
-    --window-size 640 360 \
-    --icon-size 128 \
-    --text-size 14 \
-    --icon "$(basename "$APP_PATH")" 160 180 \
-    --app-drop-link 480 180 \
-    --hide-extension "$(basename "$APP_PATH")" \
-    "$dmg_path" \
-    "$staging_dir"
+# dmgbuild writes the Finder window layout itself. Scripting Finder (as
+# create-dmg does) records the build machine's Finder preferences, such as
+# the tab bar, and pushes the icons out of place.
+ensure_dmgbuild() {
+  local dmgbuild="$DMGBUILD_VENV/bin/dmgbuild"
+  if [[ -x "$dmgbuild" ]] \
+    && "$DMGBUILD_VENV/bin/python3" -m pip show dmgbuild 2>/dev/null | grep -qx "Version: $DMGBUILD_VERSION"; then
+    return 0
+  fi
+  echo "installing dmgbuild $DMGBUILD_VERSION into $DMGBUILD_VENV"
+  rm -rf "$DMGBUILD_VENV"
+  python3 -m venv "$DMGBUILD_VENV" \
+    && "$DMGBUILD_VENV/bin/python3" -m pip install --quiet --disable-pip-version-check "dmgbuild==$DMGBUILD_VERSION"
+}
+
+rm -f "$dmg_path"
+if ensure_dmgbuild; then
+  "$DMGBUILD_VENV/bin/dmgbuild" \
+    -s "$SCRIPT_DIR/dmg-settings.py" \
+    -D app="$APP_PATH" \
+    "$volume_name" \
+    "$dmg_path"
 else
-  echo "warning: create-dmg not found, falling back to hdiutil" >&2
+  echo "warning: dmgbuild unavailable, falling back to a plain hdiutil image" >&2
   staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/nulconnect-dmg.XXXXXX")"
   cleanup() {
     rm -rf "$staging_dir"

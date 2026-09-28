@@ -253,6 +253,7 @@ final class NulConnectStatusItemController: NSObject {
 
     @objc private func toggleConnection() {
         guard let model else { return }
+        model.noteUserInitiatedAction()
         switch model.effectiveRouteMode {
         case .proxy:
             model.isProxyRunning ? model.stopProxyMode() : model.startProxyMode()

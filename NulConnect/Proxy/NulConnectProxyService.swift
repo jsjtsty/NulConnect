@@ -29,6 +29,7 @@ nonisolated final class NulConnectProxyService: @unchecked Sendable {
     private let client: ATRClient
     private let listenHost: String
     private let listenPort: UInt16
+    private let pacToken: String?
     private var service: ATRProxyService?
     private var eventMonitorTask: Task<Void, Never>?
     private(set) var endpoint: NulConnectProxyEndpoint?
@@ -38,7 +39,8 @@ nonisolated final class NulConnectProxyService: @unchecked Sendable {
         session: ATRSessionMaterial?,
         resource: ATRResourceSnapshot?,
         listenHost: String = "127.0.0.1",
-        listenPort: UInt16 = 1920
+        listenPort: UInt16 = 1920,
+        pacToken: String? = nil
     ) async throws {
         guard let session else {
             throw NulConnectProxyServiceError.missingSession
@@ -63,6 +65,13 @@ nonisolated final class NulConnectProxyService: @unchecked Sendable {
         self.client = client
         self.listenHost = listenHost
         self.listenPort = listenPort
+        self.pacToken = pacToken
+    }
+
+    /// URL of the PAC file served by this proxy, once it is running.
+    var pacURL: String? {
+        guard let endpoint, let pacToken else { return nil }
+        return "http://\(endpoint.host):\(endpoint.port)/proxy.pac?token=\(pacToken)"
     }
 
     func start() async throws -> NulConnectProxyEndpoint {
@@ -79,7 +88,8 @@ nonisolated final class NulConnectProxyService: @unchecked Sendable {
                 connectTimeout: 10_000,
                 idleTimeout: 0,
                 enableHTTP: true,
-                enableSOCKS5: true
+                enableSOCKS5: true,
+                pacToken: pacToken
             )
         )
         let atrEndpoint = try service.endpoint()

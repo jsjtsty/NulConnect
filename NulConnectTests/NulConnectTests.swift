@@ -27,6 +27,47 @@ struct NulConnectTests {
         #expect(loaded == profile)
     }
 
+    @Test func profileFromOlderVersionGetsDefaultsForNewSettings() throws {
+        var legacy = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(NulConnectProfile.default)
+        ) as! [String: Any]
+        for key in ["systemProxyMode", "pacToken", "autoConnectOnLaunch", "notificationsEnabled"] {
+            legacy.removeValue(forKey: key)
+        }
+        let data = try JSONSerialization.data(withJSONObject: legacy)
+        let profile = try JSONDecoder().decode(NulConnectProfile.self, from: data)
+
+        #expect(profile.systemProxyMode == .all)
+        #expect(profile.autoConnectOnLaunch == false)
+        #expect(profile.notificationsEnabled == true)
+        #expect(profile.pacToken.count == 32)
+        #expect(profile.pacToken.allSatisfy { $0.isHexDigit })
+    }
+
+    @Test func invalidPACTokenIsReplaced() throws {
+        var stored = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(NulConnectProfile.default)
+        ) as! [String: Any]
+        stored["pacToken"] = "a&b=c"
+        let data = try JSONSerialization.data(withJSONObject: stored)
+        let profile = try JSONDecoder().decode(NulConnectProfile.self, from: data)
+
+        #expect(profile.pacToken != "a&b=c")
+        #expect(profile.pacToken.count == 32)
+    }
+
+    @Test func portalAddressAcceptsHostsAndPastedURLs() {
+        #expect(NulConnectPortalAddress.parse("vpn.example.edu") == .init(host: "vpn.example.edu", port: nil))
+        #expect(NulConnectPortalAddress.parse("  VPN.Example.edu:8443 ") == .init(host: "vpn.example.edu", port: 8443))
+        #expect(NulConnectPortalAddress.parse("https://vpn.example.edu/portal/#!/login") == .init(host: "vpn.example.edu", port: 443))
+        #expect(NulConnectPortalAddress.parse("https://vpn.example.edu:4433/") == .init(host: "vpn.example.edu", port: 4433))
+        #expect(NulConnectPortalAddress.parse("10.1.2.3") == .init(host: "10.1.2.3", port: nil))
+        #expect(NulConnectPortalAddress.parse("") == nil)
+        #expect(NulConnectPortalAddress.parse("vpn example") == nil)
+        #expect(NulConnectPortalAddress.parse("ftp://vpn.example.edu") == nil)
+        #expect(NulConnectPortalAddress.parse("vpn.example.edu:99999") == nil)
+    }
+
     @Test func resourceSnapshotRoundTrip() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = try ResourceSnapshotStore(baseDirectory: root)

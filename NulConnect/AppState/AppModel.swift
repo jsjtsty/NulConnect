@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import SwiftUI
@@ -28,6 +29,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var loginState: NulConnectLoginState = .idle
     @Published private(set) var availableLoginMethods: [ATRAuthMethod] = []
     @Published var webLoginSession: NulConnectWebLoginSession?
+    /// The web sign-in in progress, silent or shown in the login window.
+    @Published private(set) var webLoginController: NulConnectWebLoginController?
+    /// Changes whenever the login window should be shown.
+    @Published private(set) var webLoginWindowRequest: UUID?
     @Published private(set) var sessionSummary: NulConnectSessionSummary?
     @Published private(set) var resourceSnapshot: ATRResourceSnapshot?
     @Published private(set) var bannerMessage: String?
@@ -36,6 +41,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var helperVersionText: String = NulConnectLocalization.text("Not installed")
     @Published private(set) var bundledHelperVersionText: String = NulConnectLocalization.text("Loading")
     @Published private(set) var isLoggingOut = false
+    @Published private(set) var isLaunchAtLoginEnabled = NulConnectLoginItem.isEnabled
 
     let trafficStore = NulConnectTrafficStore()
 
@@ -57,6 +63,15 @@ final class AppModel: ObservableObject {
     private var pendingConnectionMode: NulConnectRouteMode?
     private var isRecoveringTunnelSession = false
     private let networkMonitor = NulConnectNetworkMonitor()
+    private let notifier = NulConnectNotifier()
+    private var launchTask: Task<Void, Never>?
+    /// A sign-in that needs the user came up while they were working in
+    /// another app; show it when NulConnect is activated (e.g. by clicking
+    /// the notification).
+    private var webLoginPresentationDeferred = false
+    private var lastUserActionAt: Date?
+    private var activationObserver: NSObjectProtocol?
+    private static let hasCompletedWebLoginKey = "NulConnectHasCompletedWebLogin"
     private var networkChangeTask: Task<Void, Never>?
     /// The user asked for VPN mode and has not stopped it. Cleared by an
     /// explicit stop, sign-out, termination or an expired sign-in.
@@ -113,6 +128,128 @@ final class AppModel: ObservableObject {
         networkMonitor.start { [weak self] event in
             self?.handleNetworkEvent(event)
         }
+        launchTask = Task { [weak self] in
+            await self?.performLaunchTasks()
+        }
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.presentDeferredWebLoginIfNeeded()
+            }
+        }
+    }
+
+    // MARK: - Launch
+
+    private func performLaunchTasks() async {
+        await recoverPrivilegedStateAfterUnexpectedExit()
+        guard runtimeProfile.autoConnectOnLaunch,
+              storedSessionMaterial != nil,
+              connectionState.phase == .disconnected || connectionState.phase == .failed,
+              !isProxyRunning, !isProxyBusy, !isTunnelRunning, !isTunnelBusy else { return }
+        NulConnectDiagnostics.log("[NulConnect][Launch] auto-connect mode=\(effectiveRouteMode.rawValue)")
+        switch effectiveRouteMode {
+        case .proxy:
+            startProxyMode()
+        case .tun:
+            startTunnelMode()
+        }
+    }
+
+    /// Nothing of this app instance is running yet, so any system proxy or
+    /// TUN session the helper still holds was left by a previous app process
+    /// that crashed or was killed. A system proxy pointing at a dead local
+    /// port would break all browsing, so restore both.
+    private func recoverPrivilegedStateAfterUnexpectedExit() async {
+        guard helperClient.isInstalled(), helperClient.isRunning() else { return }
+        // Another running copy (e.g. a debug build next to the installed
+        // app) owns whatever the helper holds; it is not a leftover.
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let otherInstances = NSRunningApplication
+            .runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            .filter { $0.processIdentifier != ownPID }
+        guard otherInstances.isEmpty else {
+            NulConnectDiagnostics.log("[NulConnect][Launch] another instance is running; skipping recovery")
+            return
+        }
+        guard let status = try? await helperClient.status() else { return }
+        let tunStatus = (status["tun"] as? [String: Any])?["status"] as? String
+        let proxySnapshotExists = status["system_proxy_snapshot_exists"] as? Bool ?? false
+        let tunActive = ["starting", "running", "stopping"].contains(tunStatus ?? "")
+        guard proxySnapshotExists || tunActive else { return }
+        NulConnectDiagnostics.log("[NulConnect][Launch] recovering stale state tun=\(tunStatus ?? "nil") systemProxy=\(proxySnapshotExists)")
+        do {
+            try await helperClient.cleanup()
+            bannerMessage = NulConnectLocalization.text("Restored network settings left by the previous session")
+        } catch {
+            NulConnectDiagnostics.log("[NulConnect][Launch] recovery failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Preferences
+
+    func configurePortal(_ address: NulConnectPortalAddress) {
+        replaceProfile { profile in
+            profile.serverHost = address.host
+            if let port = address.port {
+                profile.serverPort = port
+            }
+        }
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            try NulConnectLoginItem.setEnabled(enabled)
+            if enabled && NulConnectLoginItem.requiresApproval {
+                bannerMessage = NulConnectLocalization.text("Allow NulConnect in System Settings › General › Login Items")
+                NulConnectLoginItem.openSystemSettings()
+            }
+        } catch {
+            bannerMessage = NulConnectLocalization.format("Could not change the login item: %1$@", [String(describing: error.localizedDescription)])
+        }
+        isLaunchAtLoginEnabled = NulConnectLoginItem.isEnabled
+    }
+
+    func setSystemProxyMode(_ mode: NulConnectSystemProxyMode) {
+        guard mode != profile.systemProxyMode else { return }
+        replaceProfile { $0.systemProxyMode = mode }
+        // Re-apply right away when the system proxy is active.
+        if case .enabled(let endpoint) = systemProxyState {
+            Task {
+                await enableSystemProxy(endpoint: endpoint)
+            }
+        }
+    }
+
+    /// `export` line for shells; `socks5h` makes curl & co. resolve names
+    /// through the proxy, which intranet names need.
+    var terminalProxyCommand: String? {
+        guard let endpoint = commandProxyEndpoint else { return nil }
+        let http = "http://\(endpoint)"
+        return "export http_proxy=\(http) https_proxy=\(http) all_proxy=socks5h://\(endpoint)"
+    }
+
+    /// SSH option that tunnels through the local SOCKS5 proxy; the host name
+    /// is resolved by the proxy.
+    var sshProxyCommand: String? {
+        guard let endpoint = commandProxyEndpoint else { return nil }
+        return "-o ProxyCommand='nc -X 5 -x \(endpoint) %h %p'"
+    }
+
+    private var commandProxyEndpoint: String? {
+        if case .running(let endpoint) = proxyState {
+            return endpoint.displayString
+        }
+        guard isLocalProxyPortValid else { return nil }
+        return "127.0.0.1:\(runtimeProfile.localProxyPort)"
+    }
+
+    private func notify(_ title: String, _ body: String, identifier: String) {
+        guard runtimeProfile.notificationsEnabled else { return }
+        notifier.post(title: title, body: body, identifier: identifier)
     }
 
     static func bootstrap() -> AppModel {
@@ -438,6 +575,8 @@ final class AppModel: ObservableObject {
             await self.prepareForApplicationTermination()
             await self.authEngine.reset()
             await NulConnectWebDataStore.clearLoginData()
+            // The SSO cookies are gone; a silent attempt could only time out.
+            self.hasCompletedWebLogin = false
             do {
                 try self.sessionVault.clear()
                 try self.resourceStore.delete()
@@ -445,6 +584,7 @@ final class AppModel: ObservableObject {
                 self.sessionSummary = nil
                 self.resourceSnapshot = nil
                 self.availableLoginMethods = []
+                self.discardWebLoginController()
                 self.webLoginSession = nil
                 self.loginState = .idle
                 self.lastPersistenceErrorMessage = nil
@@ -789,7 +929,22 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func startWebLogin(using method: ATRAuthMethod? = nil) {
+    /// Records that the user just asked for a connection, so a sign-in that
+    /// follows is shown right away instead of waiting in the background.
+    func noteUserInitiatedAction() {
+        lastUserActionAt = Date()
+    }
+
+    /// SSO cookies from an earlier successful sign-in on this Mac usually let
+    /// the portal skip the login form.
+    private var hasCompletedWebLogin: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.hasCompletedWebLoginKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasCompletedWebLoginKey) }
+    }
+
+    /// - Parameter allowSilent: try the SSO flow without a window first and
+    ///   show the login window only if the portal waits for the user.
+    func startWebLogin(using method: ATRAuthMethod? = nil, allowSilent: Bool = false) {
         guard isLoginConfigurationReady else {
             loginState = .failed(message: NulConnectLocalization.text("Enter the server address in Settings first"))
             bannerMessage = NulConnectLocalization.text("Enter and save the server address first")
@@ -820,11 +975,11 @@ final class AppModel: ObservableObject {
                 let session = try await authEngine.resolveWebLoginSession(for: targetMethod, deviceID: deviceID)
                 await MainActor.run {
                     self.availableLoginMethods = methods
-                    self.webLoginSession = session
                     self.loginState = .presenting(methodName: targetMethod.authName.isEmpty ? targetMethod.authType : targetMethod.authName)
-                    self.bannerMessage = NulConnectLocalization.format("Opened %1$@", [String(describing: session.title)])
                     self.lastPersistenceErrorMessage = nil
-                    print("[NulConnect][Login] open web session title='\(session.title)' subtitle='\(session.subtitle)' startURL='\(session.startURL.absoluteString)'")
+                    let silent = allowSilent && self.hasCompletedWebLogin
+                    print("[NulConnect][Login] open web session title='\(session.title)' silent=\(silent) startURL='\(loggableURL(session.startURL))'")
+                    self.beginWebLogin(session: session, silent: silent)
                 }
             } catch {
                 await MainActor.run {
@@ -836,9 +991,62 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func beginWebLogin(session: NulConnectWebLoginSession, silent: Bool) {
+        discardWebLoginController()
+        let controller = NulConnectWebLoginController(session: session, mode: silent ? .silent : .interactive)
+        controller.onCaptured = { [weak self] url in
+            self?.completeWebLogin(with: url)
+        }
+        controller.onNeedsInteraction = { [weak self] _ in
+            self?.presentWebLogin()
+        }
+        webLoginSession = session
+        webLoginController = controller
+        controller.start()
+        if silent {
+            bannerMessage = NulConnectLocalization.text("Restoring sign-in session")
+        } else {
+            presentWebLogin()
+        }
+    }
+
+    /// Shows the login window, unless the sign-in was triggered in the
+    /// background (e.g. an automatic reconnect) while the user works in
+    /// another app: then notify instead of stealing focus.
+    private func presentWebLogin() {
+        guard let controller = webLoginController else { return }
+        controller.becomeInteractive()
+        let userIsWaiting = NSApp.isActive
+            || lastUserActionAt.map { Date().timeIntervalSince($0) < 60 } == true
+        if userIsWaiting || !runtimeProfile.notificationsEnabled {
+            webLoginPresentationDeferred = false
+            bannerMessage = NulConnectLocalization.format("Opened %1$@", [String(describing: controller.session.title)])
+            webLoginWindowRequest = UUID()
+        } else {
+            webLoginPresentationDeferred = true
+            bannerMessage = NulConnectLocalization.text("Sign in again to reconnect")
+            notify("NulConnect", NulConnectLocalization.text("Sign in again to reconnect"), identifier: "session")
+            NSApp.requestUserAttention(.informationalRequest)
+        }
+    }
+
+    private func presentDeferredWebLoginIfNeeded() {
+        guard webLoginPresentationDeferred, webLoginController != nil else { return }
+        webLoginPresentationDeferred = false
+        notifier.clear(identifier: "session")
+        webLoginWindowRequest = UUID()
+    }
+
+    private func discardWebLoginController() {
+        webLoginController?.stop()
+        webLoginController = nil
+        webLoginPresentationDeferred = false
+    }
+
     func cancelWebLogin() {
         loginTask?.cancel()
         loginTask = nil
+        discardWebLoginController()
         webLoginSession = nil
         pendingConnectionMode = nil
         if case .succeeded = loginState {
@@ -850,7 +1058,7 @@ final class AppModel: ObservableObject {
 
     private func requestWebLogin(toContinue mode: NulConnectRouteMode) {
         pendingConnectionMode = mode
-        startWebLogin()
+        startWebLogin(allowSilent: true)
     }
 
     private func continuePendingConnectionAfterLogin() {
@@ -882,7 +1090,9 @@ final class AppModel: ObservableObject {
                 case .done(let material):
                     await MainActor.run {
                         self.saveSessionMaterial(material)
+                        self.hasCompletedWebLogin = true
                         self.loginState = .succeeded(message: NulConnectLocalization.text("Session saved"))
+                        self.discardWebLoginController()
                         self.webLoginSession = nil
                         if !self.isProxyRunning {
                             self.connectionState = NulConnectConnectionState(
@@ -904,6 +1114,7 @@ final class AppModel: ObservableObject {
                     }
                 case .callbackURL(let url, let kind):
                     await MainActor.run {
+                        self.discardSilentWebLogin()
                         self.loginState = .failed(message: NulConnectLocalization.format("Callback requires further handling: %1$@", [String(describing: kind)]))
                         self.bannerMessage = NulConnectLocalization.format("Sign-in requires another redirect: %1$@", [String(describing: url)])
                         self.lastPersistenceErrorMessage = nil
@@ -912,12 +1123,14 @@ final class AppModel: ObservableObject {
                     }
                 case .captcha:
                     await MainActor.run {
+                        self.discardSilentWebLogin()
                         self.loginState = .failed(message: NulConnectLocalization.text("Sign-in requires a CAPTCHA, which is not supported yet"))
                         self.bannerMessage = NulConnectLocalization.text("Sign-in returned a CAPTCHA challenge")
                         print("[NulConnect][Login] complete web login returned captcha challenge")
                     }
                 case .smsCode:
                     await MainActor.run {
+                        self.discardSilentWebLogin()
                         self.loginState = .failed(message: NulConnectLocalization.text("Sign-in requires SMS verification, which is not supported yet"))
                         self.bannerMessage = NulConnectLocalization.text("Sign-in returned an SMS verification challenge")
                         print("[NulConnect][Login] complete web login returned sms challenge")
@@ -925,6 +1138,7 @@ final class AppModel: ObservableObject {
                 }
             } catch {
                 await MainActor.run {
+                    self.discardSilentWebLogin()
                     self.loginState = .failed(message: error.localizedDescription)
                     self.bannerMessage = NulConnectLocalization.format("Could not complete sign-in: %1$@", [String(describing: error.localizedDescription)])
                     self.lastPersistenceErrorMessage = error.localizedDescription
@@ -932,6 +1146,16 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// A silent attempt whose callback could not be completed has nothing
+    /// to show (the page stopped at the callback); drop it so the next
+    /// connect starts over.
+    private func discardSilentWebLogin() {
+        guard webLoginController?.mode == .silent else { return }
+        discardWebLoginController()
+        webLoginSession = nil
+        pendingConnectionMode = nil
     }
 
     private func enableSystemProxy(endpoint: NulConnectProxyEndpoint) async {
@@ -952,9 +1176,13 @@ final class AppModel: ObservableObject {
 
         systemProxyState = .enabling
         do {
+            let pacURL: String? = runtimeProfile.systemProxyMode == .pac
+                ? "http://\(endpoint.displayString)/proxy.pac?token=\(runtimeProfile.pacToken)"
+                : nil
             let serviceCount = try await systemProxyManager.enable(
                 endpoint: endpoint,
                 serverHost: runtimeProfile.serverHost,
+                pacURL: pacURL,
                 helperActivityReporter: { [weak self] state in
                     self?.helperActivityState = state
                     if let message = state.message {
@@ -1035,7 +1263,8 @@ final class AppModel: ObservableObject {
                     profile: profile,
                     session: session,
                     resource: resource,
-                    listenPort: profile.localProxyPort
+                    listenPort: profile.localProxyPort,
+                    pacToken: profile.pacToken
                 )
                 service.onSessionInvalidated = { [weak self] error in
                     Task { @MainActor [weak self] in
@@ -1218,6 +1447,9 @@ final class AppModel: ObservableObject {
                     self.bannerMessage = wasReconnect
                         ? NulConnectLocalization.text("VPN reconnected")
                         : NulConnectLocalization.text("VPN mode started")
+                    if wasReconnect {
+                        self.notify("NulConnect", NulConnectLocalization.text("VPN reconnected"), identifier: "vpn-connection")
+                    }
                     self.lastPersistenceErrorMessage = nil
                     self.startTunnelHealthMonitor()
                     self.isRecoveringTunnelSession = false
@@ -1412,7 +1644,8 @@ final class AppModel: ObservableObject {
                     profile: profile,
                     session: session,
                     resource: resource,
-                    listenPort: profile.localProxyPort
+                    listenPort: profile.localProxyPort,
+                    pacToken: profile.pacToken
                 )
                 service.onSessionInvalidated = { [weak self] error in
                     Task { @MainActor [weak self] in
@@ -1503,6 +1736,7 @@ final class AppModel: ObservableObject {
         )
         loginState = .failed(message: NulConnectLocalization.text("Sign-in session expired. Please sign in again."))
         bannerMessage = NulConnectLocalization.text("Sign-in session expired. Please sign in again.")
+        notify("NulConnect", NulConnectLocalization.text("Sign-in session expired. Please sign in again."), identifier: "session")
         lastPersistenceErrorMessage = error.localizedDescription
     }
 
@@ -1570,6 +1804,7 @@ final class AppModel: ObservableObject {
             updatedAt: .now
         )
         bannerMessage = NulConnectLocalization.format("VPN failed: %1$@", [String(describing: message)])
+        notify("NulConnect", NulConnectLocalization.format("VPN failed: %1$@", [String(describing: message)]), identifier: "vpn-connection")
         lastPersistenceErrorMessage = message
     }
 
@@ -1667,6 +1902,7 @@ final class AppModel: ObservableObject {
         updateReconnectingState(attempt: attempt)
         if attempt == 1 {
             bannerMessage = NulConnectLocalization.text("VPN connection lost. Reconnecting…")
+            notify("NulConnect", NulConnectLocalization.text("VPN connection lost. Reconnecting…"), identifier: "vpn-connection")
         }
         NulConnectDiagnostics.log("[NulConnect][Tunnel] reconnect scheduled attempt=\(attempt) reason=\(reason)")
 

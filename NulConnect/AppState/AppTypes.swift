@@ -58,6 +58,59 @@ struct NulConnectConnectionState: Codable, Sendable, Equatable {
     var updatedAt: Date
 }
 
+/// The VPN portal address as users typically paste it: a bare host name,
+/// `host:port`, or a full portal URL such as `https://vpn.example.edu/portal`.
+struct NulConnectPortalAddress: Equatable, Sendable {
+    var host: String
+    /// `nil` when the input did not name a port; keep the current one.
+    var port: UInt16?
+
+    static func parse(_ input: String) -> NulConnectPortalAddress? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains(where: \.isWhitespace) else {
+            return nil
+        }
+        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard let components = URLComponents(string: candidate),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              let host = components.host?.lowercased(),
+              !host.isEmpty,
+              components.user == nil else {
+            return nil
+        }
+        let port: UInt16?
+        if let value = components.port {
+            guard (1...65_535).contains(value) else { return nil }
+            port = UInt16(value)
+        } else {
+            // A pasted https:// link means 443; a bare host keeps the
+            // configured port.
+            port = trimmed.contains("://") ? (scheme == "http" ? 80 : 443) : nil
+        }
+        return NulConnectPortalAddress(host: host, port: port)
+    }
+}
+
+/// How the macOS system proxy is pointed at the local proxy.
+enum NulConnectSystemProxyMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// All traffic goes to the local proxy, which forwards unmanaged
+    /// destinations directly.
+    case all
+    /// A PAC file sends only managed destinations to the local proxy, so
+    /// other traffic never depends on NulConnect.
+    case pac
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return NulConnectLocalization.text("All Traffic")
+        case .pac: return NulConnectLocalization.text("Intranet Only (PAC)")
+        }
+    }
+}
+
 struct NulConnectProfile: Codable, Sendable, Equatable {
     var serverHost: String
     var serverPort: UInt16
@@ -73,6 +126,17 @@ struct NulConnectProfile: Codable, Sendable, Equatable {
     var nodeProbeTimeoutMillis: UInt64
     var clientType: String
     var platform: String
+    var systemProxyMode: NulConnectSystemProxyMode = .all
+    /// Secret part of the PAC URL; keeps web pages from reading the PAC file
+    /// (and with it the list of managed resources) from the loopback proxy.
+    var pacToken: String = NulConnectProfile.makePACToken()
+    var autoConnectOnLaunch: Bool = false
+    var notificationsEnabled: Bool = true
+
+    static func makePACToken() -> String {
+        var generator = SystemRandomNumberGenerator()
+        return (0..<16).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max, using: &generator)) }.joined()
+    }
 
     static let `default` = NulConnectProfile(
         serverHost: "",
@@ -106,6 +170,10 @@ struct NulConnectProfile: Codable, Sendable, Equatable {
         case nodeProbeTimeoutMillis
         case clientType
         case platform
+        case systemProxyMode
+        case pacToken
+        case autoConnectOnLaunch
+        case notificationsEnabled
     }
 
     init(
@@ -156,6 +224,16 @@ struct NulConnectProfile: Codable, Sendable, Equatable {
         self.nodeProbeTimeoutMillis = try container.decode(UInt64.self, forKey: .nodeProbeTimeoutMillis)
         self.clientType = try container.decode(String.self, forKey: .clientType)
         self.platform = try container.decode(String.self, forKey: .platform)
+        self.systemProxyMode = try container.decodeIfPresent(NulConnectSystemProxyMode.self, forKey: .systemProxyMode) ?? .all
+        if let token = try container.decodeIfPresent(String.self, forKey: .pacToken),
+           !token.isEmpty,
+           token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) {
+            self.pacToken = token
+        } else {
+            self.pacToken = Self.makePACToken()
+        }
+        self.autoConnectOnLaunch = try container.decodeIfPresent(Bool.self, forKey: .autoConnectOnLaunch) ?? false
+        self.notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
     }
 
 }
