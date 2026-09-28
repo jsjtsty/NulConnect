@@ -273,3 +273,5 @@
 "VPN Portal Address" = "VPN 入口網站位址";
 "Enter a host name such as vpn.example.edu or a portal link starting with https://" = "請輸入類似 vpn.example.edu 的主機名稱，或以 https:// 開頭的入口網站網址";
 "Sign in again to reconnect" = "需要重新登入才能恢復連線";
+"Speed" = "速度";
+"Disconnect to change the mode" = "中斷連線後才能切換模式";

@@ -273,3 +273,5 @@
 "VPN Portal Address" = "VPN ポータルのアドレス";
 "Enter a host name such as vpn.example.edu or a portal link starting with https://" = "vpn.example.edu のようなホスト名、または https:// で始まるポータルの URL を入力してください";
 "Sign in again to reconnect" = "再接続するにはもう一度サインインしてください";
+"Speed" = "速度";
+"Disconnect to change the mode" = "モードを変更するには接続を解除してください";

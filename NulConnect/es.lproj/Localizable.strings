@@ -273,3 +273,5 @@
 "VPN Portal Address" = "Dirección del portal VPN";
 "Enter a host name such as vpn.example.edu or a portal link starting with https://" = "Introduce un nombre de host como vpn.example.edu o un enlace al portal que empiece por https://";
 "Sign in again to reconnect" = "Vuelve a iniciar sesión para reconectar";
+"Speed" = "Velocidad";
+"Disconnect to change the mode" = "Desconéctate para cambiar el modo";

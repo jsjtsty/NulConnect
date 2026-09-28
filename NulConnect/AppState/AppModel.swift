@@ -89,6 +89,7 @@ final class AppModel: ObservableObject {
     private var suppressProfilePersistence = false
     private var isStatisticsVisible = false
     private var isMenuBarVisible = false
+    private var isMainWindowVisible = false
     private var trafficCounterOffset: NulConnectTrafficCounters = .zero
     private var previousTrafficSample: (counters: NulConnectTrafficCounters, instant: ContinuousClock.Instant)?
 
@@ -605,6 +606,47 @@ final class AppModel: ObservableObject {
     func setMenuBarVisible(_ visible: Bool) {
         isMenuBarVisible = visible
         updateTrafficSamplingState()
+    }
+
+    /// The main window shows live duration and speed while connected.
+    func setMainWindowVisible(_ visible: Bool) {
+        isMainWindowVisible = visible
+        updateTrafficSamplingState()
+    }
+
+    /// Error shown under the status title: why the connection failed, or
+    /// why the system proxy could not be changed. Nothing otherwise.
+    var statusError: String? {
+        if connectionState.phase == .failed,
+           let message = connectionState.message, !message.isEmpty {
+            return message
+        }
+        if case .failed(let message) = systemProxyState, !message.isEmpty {
+            return message
+        }
+        return nil
+    }
+
+    /// Switches between proxy and VPN mode while disconnected.
+    func setRouteMode(_ mode: NulConnectRouteMode) {
+        guard isHelperInstalled else {
+            replaceProfile { profile in
+                profile.routeMode = .proxy
+                profile.useSystemProxy = false
+            }
+            return
+        }
+        guard !isVPNConnectedOrConnecting, mode != profile.routeMode else { return }
+        replaceProfile { profile in
+            profile.routeMode = (mode == .tun && !canUseTunnelMode) ? .proxy : mode
+            profile.useSystemProxy = false
+        }
+    }
+
+    /// Whether the main window may offer the proxy/VPN switch right now.
+    var canSwitchRouteMode: Bool {
+        isHelperInstalled && isTunnelFeatureAvailable
+            && !isProxyRunning && !isProxyBusy && !isTunnelRunning && !isTunnelBusy
     }
 
     private func updateTrafficSamplingState() {
@@ -2020,7 +2062,7 @@ final class AppModel: ObservableObject {
     }
 
     private var isTrafficMonitoringRequested: Bool {
-        isStatisticsVisible || isMenuBarVisible
+        isStatisticsVisible || isMenuBarVisible || isMainWindowVisible
     }
 
     private func sampleTraffic() async {

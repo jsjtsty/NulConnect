@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var trafficStore: NulConnectTrafficStore
     @EnvironmentObject private var windowCoordinator: NulConnectWindowCoordinator
 
     var body: some View {
@@ -10,10 +11,15 @@ struct ContentView: View {
             if model.isLoginConfigurationReady {
                 VStack(spacing: 18) {
                     connectionHeader
+                    if model.isHelperInstalled && model.isTunnelFeatureAvailable {
+                        routeModePicker
+                    }
                     primaryAction
                     connectionDetails
                 }
                 .padding(24)
+                .onAppear { model.setMainWindowVisible(true) }
+                .onDisappear { model.setMainWindowVisible(false) }
             } else {
                 NulConnectPortalSetupView()
                     .padding(24)
@@ -39,24 +45,62 @@ struct ContentView: View {
         VStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(statusColor.opacity(0.14))
+                    .fill(statusColor.opacity(0.12))
                     .frame(width: 88, height: 88)
 
                 Circle()
-                    .strokeBorder(statusColor.opacity(0.22), lineWidth: 1)
+                    .strokeBorder(statusColor.opacity(0.35), lineWidth: 1)
                     .frame(width: 88, height: 88)
 
                 Image(systemName: statusSymbol)
                     .font(.system(size: 34, weight: .medium))
                     .foregroundStyle(statusColor)
+                    .contentTransition(.symbolEffect(.replace))
+                    .modifier(BusySymbolEffect(isActive: isStatusBusy))
             }
+            .animation(.easeInOut(duration: 0.25), value: model.connectionState.phase)
 
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 Text(verbatim: model.connectionState.phase.title)
                     .font(.title2.weight(.semibold))
+
+                if let error = model.statusError {
+                    Text(verbatim: error)
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var isStatusBusy: Bool {
+        switch model.connectionState.phase {
+        case .connecting, .disconnecting:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var routeModePicker: some View {
+        Picker(NulConnectLocalization.text("Connection Mode"), selection: Binding(
+            get: { model.effectiveRouteMode },
+            set: { model.setRouteMode($0) }
+        )) {
+            ForEach(NulConnectRouteMode.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: .infinity)
+        .disabled(!model.canSwitchRouteMode)
+        .help(model.canSwitchRouteMode ? "" : NulConnectLocalization.text("Disconnect to change the mode"))
     }
 
     private var primaryAction: some View {
@@ -73,42 +117,74 @@ struct ContentView: View {
         .keyboardShortcut(.defaultAction)
     }
 
+    private var isConnectionActive: Bool {
+        isProxyRunning || isTunnelRunning
+    }
+
     private var connectionDetails: some View {
         GroupBox {
             VStack(spacing: 10) {
-                DetailRow(title: NulConnectLocalization.text("Mode"), value: model.routePresentationModeTitle, symbol: "switch.2")
-                DetailRow(title: NulConnectLocalization.text("Server"), value: serverDisplayText, symbol: "server.rack")
                 DetailRow(
-                    title: NulConnectLocalization.text("Local Proxy"),
-                    value: model.proxyEndpointText,
-                    symbol: "dot.radiowaves.left.and.right",
-                    actionContent: {
-                        Menu {
-                            Button(NulConnectLocalization.text("Copy Address")) {
-                                copyToPasteboard(model.proxyEndpointText)
-                            }
-                            if let command = model.terminalProxyCommand {
-                                Button(NulConnectLocalization.text("Copy Terminal Proxy Command")) {
-                                    copyToPasteboard(command)
-                                }
-                            }
-                            if let option = model.sshProxyCommand {
-                                Button(NulConnectLocalization.text("Copy SSH ProxyCommand Option")) {
-                                    copyToPasteboard(option)
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
-                        .help(NulConnectLocalization.text("Copy"))
-                    }
+                    title: NulConnectLocalization.text("Account"),
+                    value: model.sessionSummary?.username ?? NulConnectLocalization.text("Not logged in"),
+                    symbol: "person.crop.circle"
                 )
+
+                if isConnectionActive {
+                    DetailRow(
+                        title: NulConnectLocalization.text("Speed"),
+                        value: "↓ \(NulConnectTrafficFormatter.rate(trafficStore.statistics.downloadBytesPerSecond))   ↑ \(NulConnectTrafficFormatter.rate(trafficStore.statistics.uploadBytesPerSecond))",
+                        symbol: "arrow.up.arrow.down"
+                    )
+                } else {
+                    DetailRow(title: NulConnectLocalization.text("Server"), value: serverDisplayText, symbol: "server.rack")
+                }
+
+                if model.effectiveRouteMode == .proxy {
+                    if model.effectiveSystemProxyEnabled {
+                        DetailRow(
+                            title: NulConnectLocalization.text("System Proxy"),
+                            value: model.profile.systemProxyMode.title,
+                            symbol: "globe"
+                        )
+                    }
+                    DetailRow(
+                        title: NulConnectLocalization.text("Local Proxy"),
+                        value: model.proxyEndpointText,
+                        symbol: "dot.radiowaves.left.and.right",
+                        actionContent: { copyMenu }
+                    )
+                }
             }
         }
         .groupBoxStyle(.automatic)
+    }
+
+    private var copyMenu: some View {
+        Menu {
+            Button(NulConnectLocalization.text("Copy Address")) {
+                copyToPasteboard(model.proxyEndpointText)
+            }
+            if let command = model.terminalProxyCommand {
+                Button(NulConnectLocalization.text("Copy Terminal Proxy Command")) {
+                    copyToPasteboard(command)
+                }
+            }
+            if let option = model.sshProxyCommand {
+                Button(NulConnectLocalization.text("Copy SSH ProxyCommand Option")) {
+                    copyToPasteboard(option)
+                }
+            }
+        } label: {
+            Image(systemName: "doc.on.doc")
+                .imageScale(.small)
+                .foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .controlSize(.small)
+        .fixedSize()
+        .help(NulConnectLocalization.text("Copy"))
     }
 
     private var serverDisplayText: String {
@@ -584,27 +660,8 @@ struct NulConnectSettingsView: View {
     }
 
     private func applySelectedRouteMode(_ newValue: NulConnectRouteMode) {
-        guard model.isHelperInstalled else {
-            model.replaceProfile { profile in
-                profile.routeMode = .proxy
-                profile.useSystemProxy = false
-            }
-            selectedRouteMode = .proxy
-            return
-        }
-        guard !model.isVPNConnectedOrConnecting else {
-            selectedRouteMode = model.effectiveRouteMode
-            return
-        }
         DispatchQueue.main.async {
-            model.replaceProfile { profile in
-                if newValue == .tun && !model.canUseTunnelMode {
-                    profile.routeMode = .proxy
-                } else {
-                    profile.routeMode = newValue
-                }
-                profile.useSystemProxy = false
-            }
+            model.setRouteMode(newValue)
             selectedRouteMode = model.effectiveRouteMode
         }
     }
@@ -861,7 +918,14 @@ private struct NulConnectStatisticsSettingsView: View {
         guard trafficStore.statistics.connectionStartedAt != nil else {
             return "--"
         }
-        let seconds = Int(trafficStore.statistics.connectionDuration)
+        return NulConnectTrafficFormatter.duration(trafficStore.statistics.connectionDuration)
+    }
+
+}
+
+enum NulConnectTrafficFormatter {
+    static func duration(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval))
         let hours = seconds / 3_600
         let minutes = (seconds % 3_600) / 60
         let remainingSeconds = seconds % 60
@@ -871,9 +935,6 @@ private struct NulConnectStatisticsSettingsView: View {
         return String(format: "%02d:%02d", minutes, remainingSeconds)
     }
 
-}
-
-enum NulConnectTrafficFormatter {
     static func rate(_ value: Double) -> String {
         format(max(0, value), suffix: "/s")
     }
@@ -1082,5 +1143,19 @@ private struct NulConnectPortalSetupView: View {
             return
         }
         model.configurePortal(address)
+    }
+}
+
+/// Spins the status symbol while connecting/disconnecting (pulses on
+/// macOS 14, which has no rotate effect).
+private struct BusySymbolEffect: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.symbolEffect(.rotate, options: .repeating, isActive: isActive)
+        } else {
+            content.symbolEffect(.pulse, options: .repeating, isActive: isActive)
+        }
     }
 }
