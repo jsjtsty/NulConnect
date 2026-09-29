@@ -16,7 +16,7 @@ nonisolated enum NulConnectDiagnostics {
         guard NulConnectLog.isEnabled else { return }
         log("[NulConnect][Diagnostics] network snapshot begin: \(reason)")
         await logCommand(label: "route default", executable: "/sbin/route", arguments: ["-n", "get", "default"])
-        await logCommand(label: "route 198.18.0.1", executable: "/sbin/route", arguments: ["-n", "get", "198.18.0.1"])
+        await logCommand(label: "route 198.19.0.2 (fake-IP range)", executable: "/sbin/route", arguments: ["-n", "get", "198.19.0.2"])
         await logCommand(label: "netstat inet", executable: "/usr/sbin/netstat", arguments: ["-rn", "-f", "inet"])
         await logCommand(label: "dns", executable: "/usr/sbin/scutil", arguments: ["--dns"], timeoutSeconds: 5)
         log("[NulConnect][Diagnostics] network snapshot end: \(reason)")

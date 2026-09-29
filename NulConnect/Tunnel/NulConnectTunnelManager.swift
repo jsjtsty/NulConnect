@@ -244,7 +244,8 @@ nonisolated final class NulConnectTunnelManager: @unchecked Sendable {
     }
 
     private static func makeManagedRouteCIDRs(resource: ATRResourceSnapshot) -> [String] {
-        var cidrs = ["198.18.0.0/15"]
+        // The helper adds the fake-IP range (198.19.0.0/16) itself.
+        var cidrs: [String] = []
         for item in resource.ipResources {
             cidrs.append(contentsOf: ipv4RangeCIDRs(ipMin: item.ipMin, ipMax: item.ipMax))
         }
