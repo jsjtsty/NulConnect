@@ -3,7 +3,11 @@
 [![CI](https://github.com/jsjtsty/NulConnect/actions/workflows/ci.yml/badge.svg)](https://github.com/jsjtsty/NulConnect/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE)
 
-NulConnect is a native macOS client for compatible secure access services. It provides an interactive desktop interface for authentication, session management, resource inspection, proxy access, and system-wide tunnel access.
+NulConnect is a third-party, open-source macOS client for **Sangfor aTrust** (深信服 aTrust) zero-trust access services. It provides a native desktop interface for logging in to an aTrust server, managing the session, and reaching the internal resources it publishes, either through a local proxy or through a system-wide tunnel.
+
+> **Disclaimer:** This is an unofficial project. It is not affiliated with, endorsed by, or supported by Sangfor Technologies. "aTrust" and "Sangfor" are trademarks of their respective owners. Use it only with services you are authorized to access.
+
+[简体中文](README.zh-CN.md)
 
 ## Features
 
@@ -13,11 +17,12 @@ NulConnect is a native macOS client for compatible secure access services. It pr
 - Local proxy mode with optional macOS system-proxy integration
 - VPN/TUN mode for system-wide traffic routing
 - Resource and DNS snapshot handling
+- IPv4 tunnelling only; IPv6 destinations are connected directly
 - Privileged helper management for tunnel and proxy operations
 - arm64 and x86_64 macOS builds
 - Automated CI builds and tag-based GitHub Releases
 
-The application delegates protocol, authentication, resource, and transport operations to the [libreatrust](https://github.com/jsjtsty/libreatrust) Rust library. Privileged platform operations are handled by [nulconnect-helper](https://github.com/jsjtsty/nulconnect-helper).
+The application delegates aTrust protocol, authentication, resource, and transport operations to the [libreatrust](https://github.com/jsjtsty/libreatrust) Rust library. Privileged platform operations are handled by [nulconnect-helper](https://github.com/jsjtsty/nulconnect-helper).
 
 ## Requirements
 
