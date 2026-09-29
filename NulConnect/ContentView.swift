@@ -870,19 +870,21 @@ private struct NulConnectStatisticsSettingsView: View {
             }
 
             Section(NulConnectLocalization.text("This Connection")) {
-                LabeledContent(
-                    NulConnectLocalization.text("Downloaded"),
-                    value: NulConnectTrafficFormatter.bytes(
-                        trafficStore.statistics.counters.downloadedBytes
-                    )
-                )
-                LabeledContent(
-                    NulConnectLocalization.text("Uploaded"),
-                    value: NulConnectTrafficFormatter.bytes(
-                        trafficStore.statistics.counters.uploadedBytes
-                    )
-                )
-                LabeledContent(NulConnectLocalization.text("Connection Duration"), value: connectionDurationText)
+                LabeledContent(NulConnectLocalization.text("Downloaded")) {
+                    Text(NulConnectTrafficFormatter.bytes(trafficStore.statistics.counters.downloadedBytes))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.disabled)
+                }
+                LabeledContent(NulConnectLocalization.text("Uploaded")) {
+                    Text(NulConnectTrafficFormatter.bytes(trafficStore.statistics.counters.uploadedBytes))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.disabled)
+                }
+                LabeledContent(NulConnectLocalization.text("Connection Duration")) {
+                    Text(connectionDurationText)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.disabled)
+                }
             }
         }
         .formStyle(.grouped)
@@ -993,7 +995,7 @@ private struct DetailRow<ActionContent: View>: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .textSelection(.enabled)
+                .textSelection(.disabled)
 
             if let action {
                 Button(action: action) {
