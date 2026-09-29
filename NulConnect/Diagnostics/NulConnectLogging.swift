@@ -1,61 +1,34 @@
 import Foundation
+import os
 
-#if NULCONNECT_VERBOSE_LOGS
-private final class NulConnectLogWriter: @unchecked Sendable {
-    nonisolated static let shared = NulConnectLogWriter()
+/// Runtime switch for diagnostic logging. Lines go through libreatrust's
+/// shared log writer, which appends to `NulConnect.log` in the log directory
+/// and rotates it at 5 MB.
+nonisolated enum NulConnectLog {
+    private static let enabledState = OSAllocatedUnfairLock(initialState: false)
 
-    private let lock = NSLock()
-    private let fileURL: URL?
-
-    private init() {
-        let fileManager = FileManager.default
-        guard let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            fileURL = nil
-            return
-        }
-
-        let logDirectory = applicationSupport.appendingPathComponent("NulConnect", isDirectory: true)
-        do {
-            try fileManager.createDirectory(at: logDirectory, withIntermediateDirectories: true)
-            fileURL = logDirectory.appendingPathComponent("NulConnect.log", isDirectory: false)
-        } catch {
-            fileURL = nil
-            Swift.print("[NulConnect][Logging] failed to create log directory: \(error)")
-        }
+    static var isEnabled: Bool {
+        enabledState.withLock { $0 }
     }
 
-    nonisolated func write(_ message: String, terminator: String) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let line = "[\(timestamp)] \(message)\(terminator)"
+    static func setEnabled(_ enabled: Bool) {
+        enabledState.withLock { $0 = enabled }
+        atr_set_verbose_logging(enabled)
+    }
 
-        lock.lock()
-        defer { lock.unlock() }
+    static var directoryURL: URL {
+        FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("NulConnect", isDirectory: true)
+    }
 
-        guard let fileURL else { return }
-        do {
-            if !FileManager.default.fileExists(atPath: fileURL.path) {
-                FileManager.default.createFile(atPath: fileURL.path, contents: nil)
-            }
-            let handle = try FileHandle(forWritingTo: fileURL)
-            try handle.seekToEnd()
-            try handle.write(contentsOf: Data(line.utf8))
-            try handle.close()
-        } catch {
-            Swift.print("[NulConnect][Logging] failed to write log: \(error)")
-        }
+    static func write(_ message: String) {
+        message.withCString { atr_log_write($0) }
     }
 }
-#endif
 
 @inline(__always)
 nonisolated func print(_ items: Any..., separator: String = " ", terminator: String = "\n") {
-#if NULCONNECT_VERBOSE_LOGS
-    let message = items.map { String(describing: $0) }.joined(separator: separator)
-    Swift.print(message, terminator: terminator)
-    NulConnectLogWriter.shared.write(message, terminator: terminator)
-#else
-    _ = items
-    _ = separator
-    _ = terminator
-#endif
+    guard NulConnectLog.isEnabled else { return }
+    NulConnectLog.write(items.map { String(describing: $0) }.joined(separator: separator))
 }

@@ -275,3 +275,7 @@
 "Sign in again to reconnect" = "Sign in again to reconnect";
 "Speed" = "Speed";
 "Disconnect to change the mode" = "Disconnect to change the mode";
+"Diagnostics" = "Diagnostics";
+"Record Diagnostic Logs" = "Record Diagnostic Logs";
+"Open Log Folder" = "Open Log Folder";
+"Show the folder that contains the log files." = "Show the folder that contains the log files.";

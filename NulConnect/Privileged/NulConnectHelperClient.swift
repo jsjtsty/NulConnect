@@ -319,7 +319,13 @@ nonisolated final class NulConnectHelperClient: @unchecked Sendable {
         }.value
     }
 
+    func setLogging(enabled: Bool) async throws {
+        _ = try await send(command: ["command": "set_logging", "enabled": enabled])
+    }
+
     func startTun(configuration: NulConnectTunHelperConfiguration) async throws -> [String: Any] {
+        // The helper may have restarted since the app last told it.
+        try? await setLogging(enabled: NulConnectLog.isEnabled)
         let configData = try makeHelperJSONEncoder().encode(configuration)
         guard let config = try JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
             throw NulConnectHelperClientError.invalidResponse

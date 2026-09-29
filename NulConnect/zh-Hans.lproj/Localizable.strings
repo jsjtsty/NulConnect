@@ -275,3 +275,7 @@
 "Sign in again to reconnect" = "需要重新登录才能恢复连接";
 "Speed" = "速度";
 "Disconnect to change the mode" = "断开连接后才能切换模式";
+"Diagnostics" = "诊断";
+"Record Diagnostic Logs" = "记录诊断日志";
+"Open Log Folder" = "打开日志文件夹";
+"Show the folder that contains the log files." = "在访达中显示日志文件所在的文件夹。";

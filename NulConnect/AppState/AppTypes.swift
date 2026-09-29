@@ -132,6 +132,7 @@ struct NulConnectProfile: Codable, Sendable, Equatable {
     var pacToken: String = NulConnectProfile.makePACToken()
     var autoConnectOnLaunch: Bool = false
     var notificationsEnabled: Bool = true
+    var verboseLoggingEnabled: Bool = false
 
     static func makePACToken() -> String {
         var generator = SystemRandomNumberGenerator()
@@ -174,6 +175,7 @@ struct NulConnectProfile: Codable, Sendable, Equatable {
         case pacToken
         case autoConnectOnLaunch
         case notificationsEnabled
+        case verboseLoggingEnabled
     }
 
     init(
@@ -234,6 +236,7 @@ struct NulConnectProfile: Codable, Sendable, Equatable {
         }
         self.autoConnectOnLaunch = try container.decodeIfPresent(Bool.self, forKey: .autoConnectOnLaunch) ?? false
         self.notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
+        self.verboseLoggingEnabled = try container.decodeIfPresent(Bool.self, forKey: .verboseLoggingEnabled) ?? false
     }
 
 }

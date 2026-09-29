@@ -275,3 +275,7 @@
 "Sign in again to reconnect" = "Melde dich erneut an, um die Verbindung wiederherzustellen";
 "Speed" = "Geschwindigkeit";
 "Disconnect to change the mode" = "Trenne die Verbindung, um den Modus zu ändern";
+"Diagnostics" = "Diagnose";
+"Record Diagnostic Logs" = "Diagnoseprotokoll aufzeichnen";
+"Open Log Folder" = "Protokollordner öffnen";
+"Show the folder that contains the log files." = "Zeigt den Ordner mit den Protokolldateien an.";

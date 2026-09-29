@@ -19,6 +19,9 @@ final class AppModel: ObservableObject {
     @Published var profile: NulConnectProfile {
         didSet {
             scheduleProfilePersistence()
+            if oldValue.verboseLoggingEnabled != profile.verboseLoggingEnabled {
+                applyLoggingPreference()
+            }
         }
     }
 
@@ -117,6 +120,7 @@ final class AppModel: ObservableObject {
         self.sessionVault = sessionVault
         self.resourceStore = resourceStore
         self.profile = profile
+        NulConnectLog.setEnabled(profile.verboseLoggingEnabled)
         self.connectionState = connectionState
         self.proxyState = .stopped
         self.systemProxyState = .disabled
@@ -146,6 +150,7 @@ final class AppModel: ObservableObject {
     // MARK: - Launch
 
     private func performLaunchTasks() async {
+        await syncHelperLogging()
         await recoverPrivilegedStateAfterUnexpectedExit()
         guard runtimeProfile.autoConnectOnLaunch,
               storedSessionMaterial != nil,
@@ -191,6 +196,24 @@ final class AppModel: ObservableObject {
     }
 
     // MARK: - Preferences
+
+    private func applyLoggingPreference() {
+        NulConnectLog.setEnabled(profile.verboseLoggingEnabled)
+        Task { await syncHelperLogging() }
+    }
+
+    /// Passes the logging preference to the privileged helper. Older helpers
+    /// do not know the command, which is fine: they simply keep logging off.
+    private func syncHelperLogging() async {
+        guard helperClient.isInstalled(), helperClient.isRunning() else { return }
+        try? await helperClient.setLogging(enabled: NulConnectLog.isEnabled)
+    }
+
+    func openLogFolder() {
+        let directory = NulConnectLog.directoryURL
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(directory)
+    }
 
     func configurePortal(_ address: NulConnectPortalAddress) {
         replaceProfile { profile in

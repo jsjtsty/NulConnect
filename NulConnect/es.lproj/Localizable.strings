@@ -275,3 +275,7 @@
 "Sign in again to reconnect" = "Vuelve a iniciar sesión para reconectar";
 "Speed" = "Velocidad";
 "Disconnect to change the mode" = "Desconéctate para cambiar el modo";
+"Diagnostics" = "Diagnóstico";
+"Record Diagnostic Logs" = "Registrar registros de diagnóstico";
+"Open Log Folder" = "Abrir carpeta de registros";
+"Show the folder that contains the log files." = "Muestra la carpeta que contiene los archivos de registro.";

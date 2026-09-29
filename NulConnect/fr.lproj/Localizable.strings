@@ -275,3 +275,7 @@
 "Sign in again to reconnect" = "Reconnectez-vous pour rétablir la connexion";
 "Speed" = "Débit";
 "Disconnect to change the mode" = "Déconnectez-vous pour changer de mode";
+"Diagnostics" = "Diagnostic";
+"Record Diagnostic Logs" = "Enregistrer les journaux de diagnostic";
+"Open Log Folder" = "Ouvrir le dossier des journaux";
+"Show the folder that contains the log files." = "Affiche le dossier contenant les fichiers journaux.";

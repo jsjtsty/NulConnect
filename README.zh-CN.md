@@ -60,14 +60,14 @@ xcodebuild \
 
 应用目前使用以下项目的预编译产物：
 
-- [libreatrust v0.3.1](https://github.com/jsjtsty/libreatrust)
-- [nulconnect-helper v0.3.0](https://github.com/jsjtsty/nulconnect-helper)
+- [libreatrust v0.3.3](https://github.com/jsjtsty/libreatrust)
+- [nulconnect-helper v0.3.1](https://github.com/jsjtsty/nulconnect-helper)
 
 下载的文件存放在 `.build/` 下，已被 Git 忽略。测试其他兼容版本时可以覆盖版本号：
 
 ```bash
-LIBREATRUST_VERSION=v0.3.1 \
-NULCONNECT_HELPER_VERSION=v0.3.0 \
+LIBREATRUST_VERSION=v0.3.3 \
+NULCONNECT_HELPER_VERSION=v0.3.1 \
 scripts/update-dependencies.sh --arch arm64
 ```
 

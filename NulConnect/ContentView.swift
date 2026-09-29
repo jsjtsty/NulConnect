@@ -509,6 +509,20 @@ struct NulConnectSettingsView: View {
                 ))
             }
 
+            Section(NulConnectLocalization.text("Diagnostics")) {
+                Toggle(NulConnectLocalization.text("Record Diagnostic Logs"), isOn: Binding(
+                    get: { model.profile.verboseLoggingEnabled },
+                    set: { newValue in model.replaceProfile { $0.verboseLoggingEnabled = newValue } }
+                ))
+                SettingsActionRow(
+                    title: NulConnectLocalization.text("Open Log Folder"),
+                    subtitle: NulConnectLocalization.text("Show the folder that contains the log files."),
+                    systemImage: "folder"
+                ) {
+                    model.openLogFolder()
+                }
+            }
+
             Section(NulConnectLocalization.text("Client Parameters")) {
                 TextField("User-Agent", text: $userAgentDraft)
                     .onSubmit { commitUserAgentDraft() }

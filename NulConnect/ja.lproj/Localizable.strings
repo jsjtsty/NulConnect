@@ -275,3 +275,7 @@
 "Sign in again to reconnect" = "再接続するにはもう一度サインインしてください";
 "Speed" = "速度";
 "Disconnect to change the mode" = "モードを変更するには接続を解除してください";
+"Diagnostics" = "診断";
+"Record Diagnostic Logs" = "診断ログを記録";
+"Open Log Folder" = "ログフォルダを開く";
+"Show the folder that contains the log files." = "ログファイルがあるフォルダを表示します。";

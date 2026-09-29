@@ -275,3 +275,7 @@
 "Sign in again to reconnect" = "需要重新登入才能恢復連線";
 "Speed" = "速度";
 "Disconnect to change the mode" = "中斷連線後才能切換模式";
+"Diagnostics" = "診斷";
+"Record Diagnostic Logs" = "記錄診斷日誌";
+"Open Log Folder" = "打開日誌資料夾";
+"Show the folder that contains the log files." = "在 Finder 中顯示日誌檔案所在的資料夾。";
