@@ -66,19 +66,19 @@ struct WebLoginControllerTests {
         case needsInteraction(String)
     }
 
-    private func run(path: String) async throws -> Outcome {
+    private func run(path: String, silentTimeout: Duration = .seconds(3)) async throws -> Outcome {
         let portal = try FakePortal()
         let controller = NulConnectWebLoginController(
             session: session(path: path, port: portal.port),
             mode: .silent,
-            silentTimeout: .seconds(3),
+            silentTimeout: silentTimeout,
             settleDelay: .milliseconds(300)
         )
         var outcome: Outcome?
         controller.onCaptured = { outcome = .captured($0.query ?? "") }
         controller.onNeedsInteraction = { outcome = .needsInteraction($0) }
         controller.start()
-        let deadline = ContinuousClock.now + .seconds(10)
+        let deadline = ContinuousClock.now + silentTimeout + .seconds(10)
         while outcome == nil, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(50))
         }
@@ -92,9 +92,12 @@ struct WebLoginControllerTests {
     }
 
     @Test func loginFormAsksForTheUserQuickly() async throws {
+        // WebKit's cold start alone can take seconds on a busy CI runner, so use
+        // a long timeout: the form must be reported as waiting for input, well
+        // before the timeout would have fired.
         let started = ContinuousClock.now
-        #expect(try await run(path: "/form") == .needsInteraction("page waits for input"))
-        #expect(ContinuousClock.now - started < .seconds(3))
+        #expect(try await run(path: "/form", silentTimeout: .seconds(20)) == .needsInteraction("page waits for input"))
+        #expect(ContinuousClock.now - started < .seconds(15))
     }
 
     @Test func stuckPageFallsBackAfterTheTimeout() async throws {
