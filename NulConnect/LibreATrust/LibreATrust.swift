@@ -520,8 +520,17 @@ nonisolated final class ATRUdpTunnel {
     }
 }
 
+private nonisolated final class ProxyEventHandlerBox {
+    let handler: @Sendable (ATRProxyServiceEvent) -> Void
+
+    init(_ handler: @escaping @Sendable (ATRProxyServiceEvent) -> Void) {
+        self.handler = handler
+    }
+}
+
 nonisolated final class ATRProxyService {
     private var raw: OpaquePointer?
+    private var eventHandlerBox: Unmanaged<ProxyEventHandlerBox>?
 
     init(raw: OpaquePointer) {
         self.raw = raw
@@ -529,7 +538,42 @@ nonisolated final class ATRProxyService {
 
     deinit {
         if let raw {
+            // Clearing waits for an in-flight callback, so the box can be released.
+            _ = atr_proxy_service_set_event_callback(raw, nil, nil)
             atr_proxy_service_free(raw)
+        }
+        eventHandlerBox?.release()
+    }
+
+    /// Registers a handler called on a library thread as soon as the service
+    /// records an event; pass `nil` to clear it. The handler must return quickly
+    /// and must not call back into this service.
+    func setEventHandler(_ handler: (@Sendable (ATRProxyServiceEvent) -> Void)?) throws {
+        try withRaw { raw in
+            guard let handler else {
+                try check(atr_proxy_service_set_event_callback(raw, nil, nil))
+                eventHandlerBox?.release()
+                eventHandlerBox = nil
+                return
+            }
+            let box = Unmanaged.passRetained(ProxyEventHandlerBox(handler))
+            let callback: atr_proxy_service_event_callback_t = { kind, message, userData in
+                guard let userData,
+                      let event = decodeProxyServiceEvent(
+                        kind: kind,
+                        message: message.map { String(cString: $0) }
+                      ) else { return }
+                Unmanaged<ProxyEventHandlerBox>.fromOpaque(userData).takeUnretainedValue().handler(event)
+            }
+            do {
+                try check(atr_proxy_service_set_event_callback(raw, callback, box.toOpaque()))
+            } catch {
+                box.release()
+                throw error
+            }
+            // Replacing returned only after the previous callback finished.
+            eventHandlerBox?.release()
+            eventHandlerBox = box
         }
     }
 

@@ -31,7 +31,6 @@ nonisolated final class NulConnectProxyService: @unchecked Sendable {
     private let listenPort: UInt16
     private let pacToken: String?
     private var service: ATRProxyService?
-    private var eventMonitorTask: Task<Void, Never>?
     private(set) var endpoint: NulConnectProxyEndpoint?
 
     init(
@@ -107,8 +106,7 @@ nonisolated final class NulConnectProxyService: @unchecked Sendable {
         } else {
             NulConnectDiagnostics.log("[NulConnect][Proxy] stop: no active endpoint")
         }
-        eventMonitorTask?.cancel()
-        eventMonitorTask = nil
+        try? service?.setEventHandler(nil)
         try? service?.stop()
         service = nil
         endpoint = nil
@@ -148,45 +146,21 @@ nonisolated final class NulConnectProxyService: @unchecked Sendable {
     }
 
     private func startEventMonitor(_ service: ATRProxyService) {
-        eventMonitorTask?.cancel()
         let onSessionInvalidated = onSessionInvalidated
-        eventMonitorTask = Task.detached(priority: .utility) { [service, onSessionInvalidated] in
-            var pollCount = 0
-            var reportedStats: String?
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .seconds(1))
-                    guard !Task.isCancelled else { return }
-                    pollCount += 1
-                    if pollCount % 2 == 0 {
-                        let stats = try service.stats()
-                        let lastEvent = stats.lastEvent.map { String(describing: $0) } ?? "nil"
-                        let snapshot = "active=\(stats.activeConnections) total=\(stats.totalConnections) lastError=\(stats.lastError ?? "nil") lastEvent=\(lastEvent)"
-                        if snapshot != reportedStats || pollCount % 60 == 0 {
-                            reportedStats = snapshot
-                            NulConnectDiagnostics.log("[NulConnect][Proxy] stats: \(snapshot)")
-                        }
+        do {
+            try service.setEventHandler { event in
+                switch event {
+                case .sessionInvalidated(let message):
+                    NulConnectDiagnostics.log("[NulConnect][Proxy] event: sessionInvalidated message=\(message)")
+                    Task { @MainActor in
+                        onSessionInvalidated?(NulConnectProxyServiceError.sessionExpired(message))
                     }
-                    guard let event = try service.takeEvent() else {
-                        continue
-                    }
-                    switch event {
-                    case .sessionInvalidated(let message):
-                        NulConnectDiagnostics.log("[NulConnect][Proxy] event: sessionInvalidated message=\(message)")
-                        await MainActor.run {
-                            onSessionInvalidated?(
-                                NulConnectProxyServiceError.sessionExpired(message)
-                            )
-                        }
-                    case .error(let message):
-                        NulConnectDiagnostics.log("[NulConnect][Proxy] event: error message=\(message)")
-                    }
-                } catch is CancellationError {
-                    return
-                } catch {
-                    NulConnectDiagnostics.log("[NulConnect][Proxy] event monitor failed: \(error)")
+                case .error(let message):
+                    NulConnectDiagnostics.log("[NulConnect][Proxy] event: error message=\(message)")
                 }
             }
+        } catch {
+            NulConnectDiagnostics.log("[NulConnect][Proxy] event handler registration failed: \(error)")
         }
     }
 

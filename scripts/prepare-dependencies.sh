@@ -10,7 +10,7 @@ Downloads the prebuilt macOS dependencies from their GitHub Releases and
 stages them for the Xcode project. No Rust toolchain is required.
 
 Environment overrides:
-  LIBREATRUST_VERSION       libreatrust release tag (default: v0.3.0)
+  LIBREATRUST_VERSION       libreatrust release tag (default: v0.3.1)
   NULCONNECT_HELPER_VERSION helper release tag (default: v0.3.0)
   NULCONNECT_DEPENDENCY_ROOT output directory for staged files
   NULCONNECT_DEPENDENCY_CACHE_DIR directory for downloaded archives
@@ -47,7 +47,7 @@ case "$ARCH" in
     ;;
 esac
 
-LIBREATRUST_VERSION="${LIBREATRUST_VERSION:-v0.3.0}"
+LIBREATRUST_VERSION="${LIBREATRUST_VERSION:-v0.3.1}"
 NULCONNECT_HELPER_VERSION="${NULCONNECT_HELPER_VERSION:-v0.3.0}"
 LIBREATRUST_REPOSITORY="${LIBREATRUST_REPOSITORY:-https://github.com/jsjtsty/libreatrust}"
 HELPER_REPOSITORY="${HELPER_REPOSITORY:-https://github.com/jsjtsty/nulconnect-helper}"

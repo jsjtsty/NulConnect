@@ -55,13 +55,13 @@ Opening `NulConnect.xcodeproj` in Xcode also runs the dependency preparation pha
 
 The application currently consumes prebuilt artifacts from these projects:
 
-- [libreatrust v0.3.0](https://github.com/jsjtsty/libreatrust)
+- [libreatrust v0.3.1](https://github.com/jsjtsty/libreatrust)
 - [nulconnect-helper v0.3.0](https://github.com/jsjtsty/nulconnect-helper)
 
 Downloaded files are stored under `.build/`, which is ignored by Git. The versions can be overridden when testing another compatible release:
 
 ```bash
-LIBREATRUST_VERSION=v0.3.0 \
+LIBREATRUST_VERSION=v0.3.1 \
 NULCONNECT_HELPER_VERSION=v0.3.0 \
 scripts/update-dependencies.sh --arch arm64
 ```
